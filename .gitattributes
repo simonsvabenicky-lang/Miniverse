@@ -1,0 +1,22 @@
+# Normalize line endings so the repo is consistent regardless of who checks it out.
+# Unity YAML assets and .meta files are text and must stay diff-able.
+* text=auto
+
+*.cs        text
+*.meta      text
+*.unity     text
+*.asset     text
+*.mat       text
+*.prefab    text
+*.json      text
+*.ps1       text
+*.cmd       text eol=crlf
+
+# Binary assets git should never try to merge or line-normalize.
+*.png       binary
+*.jpg       binary
+*.wav       binary
+*.mp3       binary
+*.fbx       binary
+*.glb       binary
+*.dll       binary
