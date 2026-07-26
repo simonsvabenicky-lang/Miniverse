@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using Miniverse.Hub.Analytics;
 
 namespace Miniverse.Hub
 {
@@ -16,6 +17,8 @@ namespace Miniverse.Hub
         Scene _activeGameScene;
         IMiniGame _activeGame;
         string _activeGameId;
+        float _gameStartTime;
+        int _pendingScore;
 
         void Awake()
         {
@@ -57,6 +60,10 @@ namespace Miniverse.Hub
 
             _activeGame.Init(new MiniGameContext(_activeGameId));
             _activeGame.StartGame();
+
+            _gameStartTime = Time.realtimeSinceStartup;
+            _pendingScore = 0;
+            AnalyticsService.LogGameLaunch(_activeGameId);
         }
 
         static IMiniGame FindMiniGameIn(Scene scene)
@@ -73,10 +80,17 @@ namespace Miniverse.Hub
         public void OnMiniGameOver(int finalScore)
         {
             Debug.Log($"[Hub] {_activeGameId} finished with score {finalScore}");
+            _pendingScore = finalScore;
             _activeGame?.SaveProgress();
             ReturnToHub();
         }
 
+        /// <summary>
+        /// Also the exit path when a player backs out mid-game with no score reported (a
+        /// menu/quit button, say) — UnloadActiveGameScene logs game_end either way, using
+        /// whatever _pendingScore was last set to (0 if OnMiniGameOver never ran), so
+        /// session-length analytics don't silently miss abandoned sessions.
+        /// </summary>
         public void ReturnToHub()
         {
             if (_activeGame == null) return;
@@ -87,6 +101,13 @@ namespace Miniverse.Hub
         {
             if (_activeGameScene.IsValid())
                 SceneManager.UnloadSceneAsync(_activeGameScene);
+
+            if (_activeGame != null)
+            {
+                float duration = Time.realtimeSinceStartup - _gameStartTime;
+                AnalyticsService.LogGameEnd(_activeGameId, duration, _pendingScore);
+            }
+
             _activeGame = null;
             _activeGameId = null;
         }

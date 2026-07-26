@@ -94,11 +94,43 @@ unloads, so hub-level UI state survives a play session with no extra save/restor
 
 ## What's deliberately NOT built yet
 
-Ads, analytics, a shared player-progress/currency system, and account/profile screens are
-all real work the fake-Claude brainstorm mentioned but this skeleton intentionally skips —
-building them now would mean guessing requirements before any real minigame has
-graduated. Revisit once Frontline (or whichever game graduates first) actually needs one
-of these, so the design is driven by a real integration instead of speculation.
+Ads and a shared player-progress/currency system are explicitly out of scope for now (Simon's
+call, 2026-07-26) — revisit later, not a priority yet. Account/profile screens are similarly
+untouched — building them now would mean guessing requirements before any real minigame has
+graduated.
+
+## Analytics
+
+Built 2026-07-26, ahead of the general ads/currency deferral, because "which games are
+actually played" is something worth tracking from the very first graduated game rather
+than reconstructing after the fact. `Assets/_Hub/Scripts/Core/Analytics/`:
+
+- `IAnalyticsBackend` — one sink interface (`LogEvent(name, params)`).
+- `LocalFileAnalyticsBackend` — the only implementation right now. Appends one JSON line
+  per event to `Application.persistentDataPath/analytics.jsonl` (on a real device:
+  `/sdcard/Android/data/<applicationId>/files/analytics.jsonl`, pullable with `adb pull`).
+  No account, SDK, or network dependency — deliberately, since this needs to work before
+  any decision about a real backend gets made.
+- `AnalyticsService` — the one static call site (`LogGameLaunch`/`LogGameEnd`).
+  `HubLauncher` calls it automatically: `LogGameLaunch` when a minigame's scene finishes
+  loading and `Init`/`StartGame` succeed, `LogGameEnd` (with duration + score) whenever
+  that scene actually unloads — that covers both a real game-over (`OnMiniGameOver`) and a
+  mid-game exit (`ReturnToHub` called directly), so abandoned sessions still count.
+
+To answer "which games are played the most": count `game_launch` events per `gameId`. For
+engagement: average `game_end.durationSeconds` per `gameId`. No dashboard yet — that's
+manual analysis of the pulled file for now. A real dashboard (most likely Unity
+Analytics/UGS, since it's already the same ecosystem as everything else here) is a second
+`IAnalyticsBackend` added to `AnalyticsService`'s list later; no call site anywhere else
+changes when that happens. The one step I can't do headlessly: linking a Unity Cloud
+project via the Unity Dashboard requires an interactive login, so that's a manual step for
+whenever a real dashboard is wanted.
+
+Verified: `AnalyticsSmokeTest.cs` (`Assets/Editor`, `Miniverse/Analytics Smoke Test` menu
+item) fires a fake launch/end pair since no real minigame exists yet to exercise
+`HubLauncher`'s hooks naturally — confirmed it writes valid JSON lines, and confirmed the
+whole thing survives a real Android/IL2CPP build (not just the Editor, which doesn't strip
+code the way a device build does).
 
 ## Current state (2026-07-26)
 
