@@ -100,7 +100,11 @@ of these, so the design is driven by a real integration instead of speculation.
   `Assets/Editor`.
 - Home scene generated and building successfully in batchmode (empty-state placeholder
   shown, since `Assets/Games/` has nothing graduated into it yet).
-- Not a git repo yet — worth setting up before any real work accumulates.
+- Verified end-to-end with a real headless Android build (`HubBuildScript.BuildAndroid`):
+  `Builds/Android/Miniverse.apk` built clean, no compile or IL2CPP errors. Not yet
+  installed/run on the physical test device.
+- Git repo initialized locally (no remote yet), identity matches Frontline's local repo
+  config. `.gitignore`/`.gitattributes` mirror Frontline's.
 
 ## For the Frontline session
 
