@@ -42,7 +42,7 @@ namespace Miniverse.EditorTools
             titleRect.anchoredPosition = new Vector2(0f, -40f);
             titleRect.sizeDelta = new Vector2(0f, 120f);
             var title = titleGO.GetComponent<Text>();
-            title.text = "Miniverse";
+            title.text = "PocketVerse";
             title.fontSize = 64;
             title.alignment = TextAnchor.MiddleCenter;
             title.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");

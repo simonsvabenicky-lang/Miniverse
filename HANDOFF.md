@@ -1,16 +1,28 @@
 # Miniverse — hub app handoff
 
-Written 2026-07-26. Miniverse is the minigame-hub app: one Play Store listing, many
-minigames inside it, each built as its own ad-style playable (lane shooter, galaxy
-defense, highway overtake, color clash, etc.) but never sold separately — the pitch is
-"try 20 games, we keep the ones people actually play."
+Written 2026-07-26. "Miniverse" is this project's internal/working name only — the
+codebase, folder, git repo, and C# `Miniverse.Hub` namespace all keep using it, it's
+harmless as scaffolding. **The public-facing app is branded "PocketVerse"**, decided
+2026-07-26 after "Miniverse" turned out to collide with a registered trademark
+(MGA'S MINIVERSE, Reg #8290433 — MGA Entertainment, who already ship their own "Miniverse"
+mobile game) *and* an existing unrelated Play Store app with nearly the same name and
+pitch ("MiniVerse - Mini Games Arcade"). Don't rename the project/code to match — only
+`PlayerSettings.productName`/`companyName`, the Android applicationId, and in-app UI text
+(the Home scene title) reflect the public name.
+
+This is a minigame-hub app: one Play Store listing, many minigames inside it, each built
+as its own ad-style playable (lane shooter, galaxy defense, highway overtake, color clash,
+etc.) but never sold separately — the pitch is "try 20 games, we keep the ones people
+actually play."
 
 ## Stack
 
 Unity 6 (6000.5.5f1, same install Frontline uses), URP, new Input System, Android as the
-primary/active build target. `com.miniverse.app` is the placeholder Android
-applicationId / `Miniverse` the company name — both trivially renameable in
-ProjectSettings before a real store listing, just needs deciding.
+primary/active build target. Android applicationId is `com.simonsvabenicky.pocketverse` —
+deliberately namespaced under the dev's own identity rather than a generic
+`com.<name>.app` pattern, because that generic pattern is exactly what collided with an
+existing app the first time around (`com.miniverse.app` was already taken by an unrelated
+published app).
 
 ## Architecture: one Unity project, "graduate via merge"
 
