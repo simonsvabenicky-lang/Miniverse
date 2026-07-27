@@ -25,7 +25,7 @@ namespace Frontline.EditorTools
     /// </summary>
     public static class CanvasBuilder
     {
-        const string UiRoot = "Assets/Art/UI";
+        const string UiRoot = "Assets/Games/Frontline/Art/UI"; // repointed at graduation (2026-07-27)
 
         public static void Build()
         {

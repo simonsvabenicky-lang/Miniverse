@@ -17,12 +17,16 @@ namespace Frontline.EditorTools
     /// </summary>
     public static class SceneBuilder
     {
-        const string ScenePath = "Assets/Scenes/Main.unity";
-        const string ProfilePath = "Assets/Settings/FrontlineVolume.asset";
-        const string PrefabDir = "Assets/Art/Prefabs";
-        const string EnvironmentDir = "Assets/Art/Environment";
-        const string AudioDir = "Assets/Audio";
-        const string GunAudioDir = "Assets/Audio/Guns";
+        // Repointed at graduation (2026-07-27): these used to be Frontline's own top-level
+        // Assets/ paths, correct only for the standalone D:\Frontline project. Left unfixed,
+        // Build() would either miss every asset or write a stray Assets/Scenes/Main.unity at
+        // Miniverse's project root instead of updating the real graduated scene.
+        const string ScenePath = "Assets/Games/Frontline/Scenes/Main.unity";
+        const string ProfilePath = "Assets/Games/Frontline/Settings/FrontlineVolume.asset";
+        const string PrefabDir = "Assets/Games/Frontline/Art/Prefabs";
+        const string EnvironmentDir = "Assets/Games/Frontline/Art/Environment";
+        const string AudioDir = "Assets/Games/Frontline/Audio";
+        const string GunAudioDir = "Assets/Games/Frontline/Audio/Guns";
 
         // The dirt strip's width, derived rather than hardcoded so props keep clearing the lane
         // if it's ever retuned. Unity's Plane primitive is 10 units across at scale 1.
@@ -172,6 +176,12 @@ namespace Frontline.EditorTools
             systems.AddComponent<GameUI>();   // menu / pause / settings shell
             systems.AddComponent<AutoPilot>();   // inert unless -autopilot is passed
 
+            // The IMiniGame adapter HubLauncher looks for after loading this scene. Written at
+            // graduation time but never actually attached anywhere until now -- the scene file
+            // is the source of truth, so a script existing on disk with nothing instantiating
+            // it does nothing.
+            systems.AddComponent<FrontlineMiniGame>();
+
             // Real uGUI/TextMeshPro, Kenney-styled -- the Main Menu specifically. Everything
             // else (Pause, Settings, HUD, Death Screen) is still GameUI's IMGUI.
             CanvasBuilder.Build();
@@ -213,10 +223,14 @@ namespace Frontline.EditorTools
 
             gmSo.ApplyModifiedProperties();
 
-            Directory.CreateDirectory("Assets/Scenes");
+            Directory.CreateDirectory("Assets/Games/Frontline/Scenes");
             EditorSceneManager.SaveScene(scene, ScenePath);
 
-            EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
+            // No longer overwrites EditorBuildSettings.scenes here (that used to be safe when
+            // this was Frontline's only scene; inside the hub it would silently wipe Home and
+            // every other graduated game out of Build Settings). Miniverse.EditorTools.
+            // BuildSceneSync.Sync() is the source of truth for Build Settings now — run that
+            // (or a full HubBuildScript.BuildAndroid, which calls it first) after this.
             AssetDatabase.SaveAssets();
 
             Debug.Log($"[Frontline] Scene rebuilt -> {ScenePath}");
@@ -456,8 +470,8 @@ namespace Frontline.EditorTools
                 shader = Shader.Find("Standard");
             }
             var mat = new Material(shader) { name = name, color = color };
-            Directory.CreateDirectory("Assets/Materials");
-            AssetDatabase.CreateAsset(mat, $"Assets/Materials/{name}.mat");
+            Directory.CreateDirectory("Assets/Games/Frontline/Materials"); // repointed at graduation (2026-07-27)
+            AssetDatabase.CreateAsset(mat, $"Assets/Games/Frontline/Materials/{name}.mat");
             return mat;
         }
     }

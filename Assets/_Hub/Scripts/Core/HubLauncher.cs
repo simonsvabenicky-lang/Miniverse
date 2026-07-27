@@ -14,6 +14,8 @@ namespace Miniverse.Hub
     {
         public static HubLauncher Instance { get; private set; }
 
+        [SerializeField] GameObject _homeUIRoot;
+
         Scene _activeGameScene;
         IMiniGame _activeGame;
         string _activeGameId;
@@ -57,6 +59,14 @@ namespace Miniverse.Hub
                 UnloadActiveGameScene();
                 return;
             }
+
+            // Additive loading means Home's own Canvas is still in the hierarchy and still
+            // rendering — without this, Home's title/grid visibly bleed through on top of (or
+            // interleaved with) the minigame's own UI and 3D scene, sort order between the two
+            // Canvases being otherwise undefined. Caught on-device during Frontline's
+            // graduation: PLAY worked, but "PocketVerse" and the empty tile box were still
+            // floating over live gameplay.
+            if (_homeUIRoot != null) _homeUIRoot.SetActive(false);
 
             _activeGame.Init(new MiniGameContext(_activeGameId));
             _activeGame.StartGame();
@@ -107,6 +117,8 @@ namespace Miniverse.Hub
                 float duration = Time.realtimeSinceStartup - _gameStartTime;
                 AnalyticsService.LogGameEnd(_activeGameId, duration, _pendingScore);
             }
+
+            if (_homeUIRoot != null) _homeUIRoot.SetActive(true);
 
             _activeGame = null;
             _activeGameId = null;

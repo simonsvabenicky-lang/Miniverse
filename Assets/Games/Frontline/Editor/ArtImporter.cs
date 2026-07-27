@@ -19,9 +19,10 @@ namespace Frontline.EditorTools
     /// </summary>
     public static class ArtImporter
     {
-        const string ArtRoot = "Assets/Art";
-        const string PrefabDir = "Assets/Art/Prefabs";
-        const string AnimatorDir = "Assets/Art/Animators";
+        // repointed at graduation (2026-07-27)
+        const string ArtRoot = "Assets/Games/Frontline/Art";
+        const string PrefabDir = "Assets/Games/Frontline/Art/Prefabs";
+        const string AnimatorDir = "Assets/Games/Frontline/Art/Animators";
 
         /// <summary>Multiplier on the gate's displayed gun, so it reads from up the lane.</summary>
         const float GateGunScale = 0.9f;
@@ -143,9 +144,9 @@ namespace Frontline.EditorTools
             mat.EnableKeyword("_EMISSION");
             mat.SetColor("_EmissionColor", new Color(1f, 0.85f, 0.25f) * 2.2f);
 
-            const string matPath = "Assets/Materials/ProjectileMat.mat";
+            const string matPath = "Assets/Games/Frontline/Materials/ProjectileMat.mat";
             AssetDatabase.DeleteAsset(matPath);
-            Directory.CreateDirectory("Assets/Materials");
+            Directory.CreateDirectory("Assets/Games/Frontline/Materials");
             AssetDatabase.CreateAsset(mat, matPath);
             go.GetComponent<MeshRenderer>().sharedMaterial = mat;
 
@@ -176,9 +177,9 @@ namespace Frontline.EditorTools
             // batched into a shared draw that would flatten them all to one colour.
             mat.enableInstancing = true;
 
-            const string matPath = "Assets/Materials/FlashMat.mat";
+            const string matPath = "Assets/Games/Frontline/Materials/FlashMat.mat";
             AssetDatabase.DeleteAsset(matPath);
-            Directory.CreateDirectory("Assets/Materials");
+            Directory.CreateDirectory("Assets/Games/Frontline/Materials");
             AssetDatabase.CreateAsset(mat, matPath);
             go.GetComponent<MeshRenderer>().sharedMaterial = mat;
             go.GetComponent<MeshRenderer>().shadowCastingMode =
@@ -308,9 +309,9 @@ namespace Frontline.EditorTools
             BaseShaderGUI.SetupMaterialBlendMode(mat);
             BaseShaderGUI.SetMaterialKeywords(mat);
 
-            const string path = "Assets/Materials/GatePanelMat.mat";
+            const string path = "Assets/Games/Frontline/Materials/GatePanelMat.mat";
             AssetDatabase.DeleteAsset(path);   // regenerate rather than stack up on rebuilds
-            Directory.CreateDirectory("Assets/Materials");
+            Directory.CreateDirectory("Assets/Games/Frontline/Materials");
             AssetDatabase.CreateAsset(mat, path);
             return mat;
         }

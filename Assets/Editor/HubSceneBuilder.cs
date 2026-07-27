@@ -88,6 +88,11 @@ namespace Miniverse.EditorTools
             so.FindProperty("_emptyStateLabel").objectReferenceValue = emptyLabel;
             so.ApplyModifiedPropertiesWithoutUndo();
 
+            var launcher = bootstrapGO.GetComponent<HubLauncher>();
+            var launcherSo = new SerializedObject(launcher);
+            launcherSo.FindProperty("_homeUIRoot").objectReferenceValue = canvasGO;
+            launcherSo.ApplyModifiedPropertiesWithoutUndo();
+
             System.IO.Directory.CreateDirectory("Assets/_Hub/Scenes");
             EditorSceneManager.SaveScene(scene, ScenePath);
             Debug.Log($"[Miniverse] Home scene rebuilt at {ScenePath}");

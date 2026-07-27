@@ -49,8 +49,8 @@ Assets/
     Scripts/UI/       - HomeScreenController
     Scenes/Home.unity - the only scene that's never unloaded
   Games/
-    <Name>/           - one folder per graduated minigame (empty for now — Frontline
-                        hasn't graduated yet, still being built in its own session)
+    Frontline/        - graduated 2026-07-27, see "Frontline graduation" section below
+    <Name>/           - one folder per graduated minigame
   Shared/             - pulled from D:\GameAssets as needed, per-game ArtImporter style
   Settings/           - URP pipeline/renderer assets, copied from Frontline so mobile
                         rendering is already tuned the same way as a device-verified game
@@ -132,6 +132,77 @@ item) fires a fake launch/end pair since no real minigame exists yet to exercise
 whole thing survives a real Android/IL2CPP build (not just the Editor, which doesn't strip
 code the way a device build does).
 
+## Frontline graduation (2026-07-27) — first real minigame merge
+
+Done. `Assets/Games/Frontline/` holds Frontline's Scripts/Art/Materials/Scenes/Audio plus
+`FrontlineVolume.asset`. `FrontlineMiniGame.cs` adapts `GameManager`/`GameUI` to `IMiniGame`;
+`GameManager.RestartOverride` redirects RESTART through `HubLauncher.ReturnToHub()` instead
+of a `LoadSceneMode.Single` reload that would've also unloaded Home. Verified end-to-end on
+the physical device: Home → Frontline tile → Frontline's own Menu → PLAY → gameplay → death
+→ RESTART → back to a working Home.
+
+**Bugs found and fixed during graduation, all now fixed in this project's copy** (the
+Frontline session's own copy of these Editor scripts under `D:\Frontline` may still have
+the originals — not urgent to sync back, but worth knowing if `D:\Frontline` ever gets
+re-copied in without re-checking):
+
+1. `FrontlineMiniGame` was written but never attached to any GameObject in the scene — a
+   script existing on disk did nothing. Fixed by adding it to the `Systems` GameObject in
+   `SceneBuilder.cs`.
+2. Every copied Editor script (`SceneBuilder.cs`, `CanvasBuilder.cs`, `ArtImporter.cs`,
+   `UIImporter.cs`) still hardcoded Frontline's *original* top-level paths
+   (`Assets/Scenes/`, `Assets/Art/...`, `Assets/Materials/...`) instead of the graduated
+   `Assets/Games/Frontline/...` location — including a `MakeMaterial()` helper inside
+   `SceneBuilder.cs` with its own separate hardcoded path, easy to miss on a first pass.
+   Left unfixed, rerunning any of these would either silently fail to find assets or write
+   stray files at the project root (which happened once, cleaned up).
+3. `SceneBuilder.Build()` used to overwrite `EditorBuildSettings.scenes` with *only*
+   Frontline's scene — harmless when Frontline was the only scene in its own project,
+   but inside the hub it would silently wipe Home (and any other graduated game) out of
+   Build Settings if this script is ever run standalone without a following
+   `BuildSceneSync.Sync()`. Removed; `BuildSceneSync` is the sole source of truth for
+   Build Settings now.
+4. `Editor/BuildScript.cs` was copied over as-is and would have silently overwritten
+   PocketVerse's `companyName`/`productName`/`applicationIdentifier` back to Frontline's
+   own branding if ever invoked (no MenuItem, so only reachable via an explicit
+   `-executeMethod`, but still real risk sitting in the project). Deleted — `HubBuildScript.cs`
+   already covers building the merged app.
+5. `Assets/TextMesh Pro/` (Fonts/Resources/Shaders) was missing entirely — Frontline's UI
+   uses TextMeshPro but the project never had TMP Essentials imported (Home's own UI
+   deliberately uses legacy `UI.Text` to avoid that setup). Without it, every
+   `TextMeshProUGUI.Awake()` threw a `NullReferenceException` on `TMP_Settings.defaultFontAsset`.
+   Copied the folder over from Frontline with matching GUIDs.
+6. Additive loading means Home's own Canvas stays in the hierarchy and rendering —
+   without hiding it, "PocketVerse" and the empty tile box floated on top of (or
+   interleaved with) live Frontline gameplay. `HubLauncher` now has a `_homeUIRoot`
+   reference it disables on launch and re-enables on return.
+
+**Known, not fixed here (out of scope):** Frontline has a real, reproducible bug where
+pausing at the exact moment lives hit 0 leaves `GameUI` showing both the Paused and Death
+screens simultaneously in a stuck state — confirmed via testing, not something I
+introduced. There's already a dedicated Frontline-side session/worktree
+(`D:\Frontline\.claude\worktrees\adoring-ptolemy-afe780`, branch
+`claude/adoring-ptolemy-afe780`) working on exactly this; no action needed from the hub
+side. Separately, testing also turned up what looks like a **stale-frame/compositor
+artifact** on the physical test device (a Huawei running EMUI, visible in logcat as
+`Hwaps`/`HwApsManager` overlay noise): after a clean RESTART, `adb shell screencap` would
+sometimes keep showing Frontline's old Death-screen pixels for several seconds even though
+diagnostic logging proved the scene had genuinely, quickly unloaded (`UnloadSceneAsync`
+completing in ~30ms) and Home was functionally interactive underneath the whole time (a
+second tap correctly launched a fresh Frontline instance). Current read: this is a testing
+artifact specific to `adb`-based screenshotting on this device, not a real bug in
+`HubLauncher`'s unload logic — but worth a sanity check by just watching the physical
+screen directly next time, rather than only trusting `screencap`, before fully closing
+this out.
+
+**Process note for future graduations:** mid-investigation here, I let the shared
+Android-device lock go stale for 40+ minutes while deep in a debugging session instead of
+re-acquiring it before each disruptive `adb` action — another concurrent session
+(CrowdBattler/"We Are Warriors") correctly treated it as abandoned per the protocol and
+took the device, which then confused my own testing for a while. Lesson relearned: take
+the lock right before the actual `adb` action, release immediately after, even mid-debug —
+don't hold one lock across a long multi-step investigation.
+
 ## Current state (2026-07-26)
 
 - Unity project created, URP + Input System + package set mirrored from Frontline's
@@ -152,10 +223,17 @@ code the way a device build does).
 
 ## For the Frontline session
 
-Nothing changes about how Frontline develops day to day — keep going in its own project
-exactly as now. The only future step is graduation: when Frontline is ready, copy its
-Assets into `Assets/Games/Frontline/` here, add a `Frontline : MonoBehaviour, IMiniGame`
-wrapper (or make `GameManager` implement it directly) around its existing
-`StartGame`/pause/`GetScore`/save calls, drop a `MiniGameDef` asset in
-`Resources/GameCatalog/`, and run `Miniverse/Sync Game Scenes To Build Settings`. Not
-urgent — Frontline isn't there yet.
+Graduated 2026-07-27 — see the section above for what actually happened and what got
+fixed. Frontline's own `D:\Frontline` project keeps developing independently exactly as
+before; future updates get pulled into the hub by re-copying the relevant folders into
+`Assets/Games/Frontline/` and re-checking the path constants in the copied Editor
+scripts (easy to get wrong again — see the bug list above) rather than assuming a
+straight copy just works.
+
+## Other minigames in progress
+
+- **FlowSort** (`D:\Pixel Flow`, session "PocketVerse sort/flow puzzle minigame") — a
+  picture-reveal shooter, working name pending a naming+collision-check pass. Not
+  graduated yet as of 2026-07-27.
+- **CrowdBattler / "We Are Warriors"** (`D:\CrowdBattler`) — a crowd/stickman battler,
+  applicationId `com.simonsvabenicky.mobmarch`. Not graduated yet as of 2026-07-27.
