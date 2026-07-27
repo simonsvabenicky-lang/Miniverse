@@ -3,6 +3,7 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
+using UnityEngine.InputSystem.UI;
 using Miniverse.Hub;
 
 namespace Miniverse.EditorTools
@@ -23,7 +24,14 @@ namespace Miniverse.EditorTools
         {
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
-            var eventSystemGO = new GameObject("EventSystem", typeof(EventSystem), typeof(StandaloneInputModule));
+            // Project is Input System-only (activeInputHandler: 1, matching Frontline) so this
+            // must be InputSystemUIInputModule, not the legacy StandaloneInputModule — the
+            // legacy module reads UnityEngine.Input, which is disabled entirely in this mode
+            // and would silently never fire (caught via Frontline's graduation: their
+            // CanvasBuilder.cs hit this exact issue first). Added with no actions assigned,
+            // InputSystemUIInputModule auto-generates default point/click bindings in OnEnable,
+            // which is exactly what happens for a component added purely in code like this.
+            var eventSystemGO = new GameObject("EventSystem", typeof(EventSystem), typeof(InputSystemUIInputModule));
 
             var canvasGO = new GameObject("Canvas", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
             var canvas = canvasGO.GetComponent<Canvas>();
