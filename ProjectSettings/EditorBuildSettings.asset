@@ -9,6 +9,9 @@ EditorBuildSettings:
     path: Assets/_Hub/Scenes/Home.unity
     guid: fd793354993b4a1468c39e015d2b6766
   - enabled: 1
+    path: Assets/Games/FlowSort/Scenes/FlowSortMain.unity
+    guid: b91ed92cdc3868340927c729d3e29ef9
+  - enabled: 1
     path: Assets/Games/Frontline/Scenes/Main.unity
     guid: 644ca5f6daa6a3c4ea4431820cc959a8
   m_configObjects: {}

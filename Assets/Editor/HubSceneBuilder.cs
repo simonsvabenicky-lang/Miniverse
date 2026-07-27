@@ -91,6 +91,7 @@ namespace Miniverse.EditorTools
             var launcher = bootstrapGO.GetComponent<HubLauncher>();
             var launcherSo = new SerializedObject(launcher);
             launcherSo.FindProperty("_homeUIRoot").objectReferenceValue = canvasGO;
+            launcherSo.FindProperty("_homeEventSystem").objectReferenceValue = eventSystemGO;
             launcherSo.ApplyModifiedPropertiesWithoutUndo();
 
             System.IO.Directory.CreateDirectory("Assets/_Hub/Scenes");

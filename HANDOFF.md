@@ -203,6 +203,74 @@ took the device, which then confused my own testing for a while. Lesson relearne
 the lock right before the actual `adb` action, release immediately after, even mid-debug —
 don't hold one lock across a long multi-step investigation.
 
+## FlowSort graduation (2026-07-27) — second minigame merge
+
+Done. `Assets/Games/FlowSort/` holds FlowSort's Gameplay/UI scripts, Kenney art
+(`Art/Kenney/`), and a ported `SceneBuilder.cs`/`ArtImporter.cs` (source project:
+`D:\FlowSort`, formerly `D:\Pixel Flow` — the FlowSort session moved off that path
+mid-project). `FlowSortMiniGame.cs` (originally handed off outside `Assets/` since
+`Miniverse.Hub` doesn't exist in FlowSort's standalone project) now lives under
+`Assets/Games/FlowSort/Scripts/` and is attached to the `GameManager` GameObject
+directly in `SceneBuilder.Build()`. `displayName`/gameId is "FlowSort" — still a working
+name per FlowSort's own HANDOFF, trivial to rename later via `FlowSortCatalogEntry.cs`
+without touching the `gameId` save-data key. Verified end-to-end on the physical device:
+Home → FlowSort tile → grid renders and is playable → exit button → back to a working,
+re-launchable Home.
+
+**Ported, not just copied**, following the lesson from Frontline's graduation: FlowSort's
+own `SceneBuilder.cs`/`ArtImporter.cs` had the same class of hardcoded-path bug
+(`Assets/Scenes/Main.unity`, `Assets/Art/Kenney/`) and the same `EditorBuildSettings.scenes`
+clobber. Fixed on the way in rather than discovered after the fact this time. Also renamed
+the scene file `Main.unity` → `FlowSortMain.unity` — Frontline's graduated scene already
+claims `Main.unity`, and `SceneManager.LoadScene(name)` resolves scenes by filename across
+the whole build, so two scenes sharing the name would be ambiguous (FlowSort's own HANDOFF
+had already flagged this as a risk). Did not copy FlowSort's standalone `BuildScript.cs`/
+`ProjectSetup.cs` — same reasoning as deleting Frontline's `BuildScript.cs`, they'd clobber
+PocketVerse's PlayerSettings if ever invoked.
+
+**Bugs found and fixed during this graduation:**
+
+1. **Real bug, not a hunch:** `SceneBuilder.cs` wired the exit button with
+   `exitButton.onClick.AddListener(gm.RequestExit)` *inside the editor-time `Build()`
+   method*. A `Button.onClick` listener added via `AddListener()` is a C# delegate, and
+   delegates don't survive scene serialization — only persistent calls added through the
+   Editor's own Inspector do. The listener silently existed only in the transient in-memory
+   scene while `Build()` ran, and vanished the moment the scene was saved to disk, so the
+   button was permanently dead in any real build. Confirmed via `analytics.jsonl` showing
+   `game_launch` with no matching `game_end`, then proved conclusively with a temporary
+   file-based trace (logcat on this device churns too fast to trust for this) showing the
+   click chain never even reached `Button.onClick`. Frontline's own `UIWire.cs` already
+   solved this correctly (runtime-wires every button from a MonoBehaviour's `Start()`) and
+   FlowSort's own `PowerupBar.cs`/`PetShop.cs` already followed that pattern too — the exit
+   button was the one outlier wired the wrong way. Fixed the same way: `RevealGameManager`
+   now has a public `ExitButton` field, assigned by `SceneBuilder`, wired in
+   `RevealGameManager.Start()`.
+2. Same latent issue as Frontline's Canvas-overlap bug, but for input: Home's `EventSystem`
+   GameObject is a sibling of Home's Canvas, not a child of it, so hiding Home's Canvas via
+   `_homeUIRoot.SetActive(false)` never touched it — it stayed enabled the whole time a
+   minigame ran, alongside the minigame's own additively-loaded `EventSystem`. Two
+   simultaneously-enabled `EventSystem`s is never correct regardless of whether it's the
+   proximate cause of a given symptom (it wasn't, here — bug #1 above was, confirmed by the
+   fact this fix alone didn't resolve the exit button). Fixed anyway: `HubLauncher` now also
+   has a `_homeEventSystem` field, disabled/re-enabled in lockstep with `_homeUIRoot`.
+   Regression-tested against Frontline afterward (PLAY still works, 62fps, no bleed-through)
+   since this touches shared hub code every graduated game depends on.
+
+**Same stale-frame/screencap artifact as Frontline's RESTART investigation, now
+reproduced a second time:** immediately after the exit button correctly unloads FlowSort
+(`analytics.jsonl` confirms `game_end` fires right on schedule), `adb shell screencap`
+reliably shows FlowSort's last frame and Home's tiles overlapping for several seconds,
+even waiting it out doesn't clear it in the screenshot. But tapping the FlowSort tile
+location again while this is showing correctly starts a *fresh* FlowSort session every
+time (confirmed via a new `game_launch` in analytics and a visibly fresh grid) — proving
+Home is genuinely interactive underneath throughout, not stuck. Given this now reproduced
+identically across two different games' transitions on this same physical device, this
+looks like a real quirk of `adb shell screencap` on this particular Huawei/EMUI device
+(compositor noise from `HwApsManager` visible in logcat both times) rather than anything
+wrong in `HubLauncher`'s unload logic — not chasing it further, but worth knowing if a
+future graduation's on-device screenshots look "stuck" right after an exit/restart: check
+interactivity (tap through it) before assuming a real bug.
+
 ## Current state (2026-07-26)
 
 - Unity project created, URP + Input System + package set mirrored from Frontline's
@@ -232,8 +300,9 @@ straight copy just works.
 
 ## Other minigames in progress
 
-- **FlowSort** (`D:\Pixel Flow`, session "PocketVerse sort/flow puzzle minigame") — a
-  picture-reveal shooter, working name pending a naming+collision-check pass. Not
-  graduated yet as of 2026-07-27.
+- **FlowSort** (`D:\FlowSort`, session "PocketVerse sort/flow puzzle minigame") — a
+  picture-reveal shooter. Graduated 2026-07-27, see the section above. Public display name
+  still pending a naming+collision-check pass (same process as PocketVerse's own); trivial
+  to update later via `FlowSortCatalogEntry.cs` without touching the `gameId` save key.
 - **CrowdBattler / "We Are Warriors"** (`D:\CrowdBattler`) — a crowd/stickman battler,
   applicationId `com.simonsvabenicky.mobmarch`. Not graduated yet as of 2026-07-27.

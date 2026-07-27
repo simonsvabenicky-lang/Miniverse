@@ -15,6 +15,7 @@ namespace Miniverse.Hub
         public static HubLauncher Instance { get; private set; }
 
         [SerializeField] GameObject _homeUIRoot;
+        [SerializeField] GameObject _homeEventSystem;
 
         Scene _activeGameScene;
         IMiniGame _activeGame;
@@ -68,6 +69,14 @@ namespace Miniverse.Hub
             // floating over live gameplay.
             if (_homeUIRoot != null) _homeUIRoot.SetActive(false);
 
+            // Home's EventSystem is a separate root object, not a child of _homeUIRoot, so
+            // hiding the Canvas above doesn't touch it — it stays enabled and fights the
+            // minigame's own additively-loaded EventSystem for UI input. Found on-device during
+            // FlowSort's graduation: the grid taps (raw Pointer + Physics2D, no EventSystem
+            // involved) worked fine, but the real uGUI exit Button never fired at all with two
+            // EventSystems live at once.
+            if (_homeEventSystem != null) _homeEventSystem.SetActive(false);
+
             _activeGame.Init(new MiniGameContext(_activeGameId));
             _activeGame.StartGame();
 
@@ -119,6 +128,7 @@ namespace Miniverse.Hub
             }
 
             if (_homeUIRoot != null) _homeUIRoot.SetActive(true);
+            if (_homeEventSystem != null) _homeEventSystem.SetActive(true);
 
             _activeGame = null;
             _activeGameId = null;
