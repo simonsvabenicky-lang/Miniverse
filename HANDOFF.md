@@ -271,6 +271,36 @@ wrong in `HubLauncher`'s unload logic — not chasing it further, but worth know
 future graduation's on-device screenshots look "stuck" right after an exit/restart: check
 interactivity (tap through it) before assuming a real bug.
 
+## Hub back button + exit sequencing (2026-07-28)
+
+Frontline had no visible way back to PocketVerse — only an undocumented hardware/gesture
+Back-button handler on its own Main Menu. Added a plain "X" button to Frontline's
+persistent TopBar shell (`CanvasBuilder.BuildShell`, shown on Menu/Shop/Upgrades/Ranks),
+reusing FlowSort's exact glyph/convention so both graduated games read as one consistent
+"X always means back to PocketVerse" UI language rather than two different ideas for the
+same action. Wired through a new `GameManager.ExitToHubOverride` static (mirrors the
+existing `RestartOverride` pattern); the old Back-key handler and the new button both
+funnel through the same `FrontlineMiniGame.RequestExit()` now instead of duplicating the
+report-score-and-exit logic. TopBar's gear/lives/Supply pill got shrunk and re-spaced to
+make room — verified on-device, no clipping or overlap in the new layout.
+
+Also hardened `HubLauncher.UnloadActiveGameScene()`: Home used to reactivate its
+Canvas/EventSystem the instant `UnloadSceneAsync` was *requested*, not once it actually
+finished — a real (if narrow) window where both the outgoing minigame and Home could be
+active simultaneously. Home now only reactivates in the unload's `.completed` callback.
+
+**Still open:** after this fix, `adb shell screencap` continued to show what looks like
+Frontline's Menu and Home's tiles overlapping for 1+ second after tapping the new X
+button — third time this exact pattern has shown up (see Frontline's RESTART
+investigation and FlowSort's exit above), and a rapid-fire sequence of screencaps taken
+across the transition differ only in Frontline's animated background glow, not in the
+overlap itself, while `analytics.jsonl` and a follow-up tap both prove Home is genuinely
+live and responsive underneath the whole time. Increasingly confident this is a quirk of
+this specific device's screen-capture/compositor path rather than a real rendering bug —
+but that conclusion rests entirely on `screencap`, the only tool available for visual
+verification here. Worth a direct look at the physical screen during a real exit (not
+through `screencap`) before fully closing this out.
+
 ## Current state (2026-07-26)
 
 - Unity project created, URP + Input System + package set mirrored from Frontline's
