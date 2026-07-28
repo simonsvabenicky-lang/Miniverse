@@ -102,14 +102,23 @@ namespace Frontline.EditorTools
             var root = NewRect("Shell", canvasRoot);
             Stretch(root);
 
-            // ---- Top bar: gear (left) -- lives badge -- Supply currency (right) ----
+            // ---- Top bar: library (back to PocketVerse) -- gear -- lives badge -- Supply currency ----
             const float topBarH = 96f;
             var topBar = NewRect("TopBar", root);
             StretchTop(topBar, topBarH);
 
-            CreateIconButton(topBar, "SettingsGearButton", Spr("Icons", "gear"), 0.09f, 0.5f, 54f);
+            // Graduation-only affordance (2026-07-28): the only way off this screen back to the
+            // hub's own Home used to be the hardware/gesture Back button, invisible unless you
+            // already knew it was there. Plain "X" rather than an icon -- no home/back glyph
+            // exists in this project's Kenney UI Pack subset, and "X" matches the button
+            // FlowSort already uses for the exact same "return to PocketVerse" action elsewhere
+            // in the app, so the two graduated games read as one consistent UI language instead
+            // of two different conventions for the same thing.
+            CreateIconTextButton(topBar, "LibraryButton", "X", 0.06f, 0.5f, 44f);
 
-            var livesPill = CreatePillPanel(topBar, "LivesPill", 0.37f, 0.5f, 196f, 52f);
+            CreateIconButton(topBar, "SettingsGearButton", Spr("Icons", "gear"), 0.175f, 0.5f, 44f);
+
+            var livesPill = CreatePillPanel(topBar, "LivesPill", 0.42f, 0.5f, 196f, 52f);
             var heartIconRt = AnchorPoint(livesPill, "HeartIcon", 0.16f, 0.5f, 30f, 30f);
             heartIconRt.gameObject.AddComponent<Image>().raycastTarget = false;
             heartIconRt.gameObject.AddComponent<ProceduralHeartIcon>();
@@ -124,7 +133,7 @@ namespace Frontline.EditorTools
             livesTmp.color = new Color(0.15f, 0.15f, 0.18f);
             livesTmp.raycastTarget = false;
 
-            var supplyPill = CreatePillPanel(topBar, "SupplyPill", 0.76f, 0.5f, 170f, 52f);
+            var supplyPill = CreatePillPanel(topBar, "SupplyPill", 0.75f, 0.5f, 130f, 52f);
             var coinIconRt = AnchorPoint(supplyPill, "CoinIcon", 0.20f, 0.5f, 28f, 28f);
             var coinImg = coinIconRt.gameObject.AddComponent<Image>();
             coinImg.sprite = Spr("Icons", "coinPlaceholder");
@@ -839,6 +848,35 @@ namespace Frontline.EditorTools
             button.colors = colors;
 
             AddIcon(rt, "Icon", icon, 0.5f, 0.5f, size * 0.52f);
+            return button;
+        }
+
+        /// <summary>Same square button as CreateIconButton, but a short text glyph instead of a
+        /// sprite -- for cases like the top bar's "X" back-to-library button where no matching
+        /// icon exists in this project's Kenney UI Pack subset.</summary>
+        static Button CreateIconTextButton(Transform parent, string name, string text, float ax, float ay, float size)
+        {
+            var rt = AnchorPoint(parent, name, ax, ay, size, size);
+            var img = rt.gameObject.AddComponent<Image>();
+            img.sprite = SquareButtonSprite("Grey");
+            img.type = Image.Type.Sliced;
+            var button = rt.gameObject.AddComponent<Button>();
+            button.targetGraphic = img;
+            var colors = button.colors;
+            colors.pressedColor = new Color(0.72f, 0.72f, 0.72f);
+            colors.fadeDuration = 0.05f;
+            button.colors = colors;
+
+            var labelRt = NewRect("Label", rt);
+            Stretch(labelRt);
+            var tmp = labelRt.gameObject.AddComponent<TextMeshProUGUI>();
+            tmp.text = text;
+            tmp.fontSize = size * 0.42f;
+            tmp.fontStyle = FontStyles.Bold;
+            tmp.alignment = TextAlignmentOptions.Center;
+            tmp.color = new Color32(40, 40, 45, 255);
+            tmp.raycastTarget = false;
+
             return button;
         }
 

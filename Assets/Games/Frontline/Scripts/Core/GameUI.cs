@@ -88,6 +88,7 @@ namespace Frontline
             _shell = c;
             if (c == null) return;
             UIWire.Click(c, "TopBar/SettingsGearButton", () => { _returnTo = Screen; Go(Screen_.Settings); });
+            UIWire.Click(c, "TopBar/LibraryButton", () => GameManager.ExitToHubOverride?.Invoke());
 
             _topBarSupplyText = c.transform.Find("TopBar/SupplyPill/Value")?.GetComponent<TMPro.TextMeshProUGUI>();
 

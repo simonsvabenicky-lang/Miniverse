@@ -647,6 +647,14 @@ namespace Frontline
         /// </summary>
         public static System.Action RestartOverride;
 
+        /// <summary>
+        /// Set by FrontlineMiniGame.Init when running under the Miniverse hub -- reports the
+        /// current score and hands control back to HubLauncher. Null (and never invoked) in a
+        /// standalone Frontline build, since there's no hub to return to. GameUI's new
+        /// "back to library" button on the tabbed screens calls this directly.
+        /// </summary>
+        public static System.Action ExitToHubOverride;
+
         /// <summary>Restarts by reloading the scene — everything rebuilds from SceneBuilder's work.</summary>
         public void Restart()
         {

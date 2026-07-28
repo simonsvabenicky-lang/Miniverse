@@ -30,6 +30,7 @@ namespace Frontline
             // Home) is the safe option until HubLauncher grows a reload-this-game-in-place call;
             // an in-place additive unload/reload here risks silently breaking Home instead.
             GameManager.RestartOverride = () => _context.ReturnToHub();
+            GameManager.ExitToHubOverride = RequestExit;
         }
 
         // Frontline shows its own Main Menu first (PLAY/CONTINUE, Shop/Upgrade/Ranks tabs)
@@ -54,25 +55,27 @@ namespace Frontline
         public void SaveProgress() => SaveData.I.Save();
 
         /// <summary>
-        /// Frontline has no in-game "exit to hub" affordance yet (its own MAIN MENU buttons
-        /// return to Frontline's *own* Main Menu, not the hub's Home) -- without this, there'd
-        /// be no way back to Home short of force-quitting. Android maps the hardware/gesture
-        /// Back button to Keyboard.escapeKey in the new Input System, so: Back at Frontline's
-        /// own Main Menu exits to the hub (reporting current score for analytics); Back
-        /// anywhere else is left alone (Frontline's own screens don't wire Back at all yet, so
-        /// this doesn't fight any existing handler). Proposed, not confirmed with the Miniverse
-        /// session -- flagged in the handoff message; easy to change the exact trigger later.
+        /// The one place that actually leaves Frontline for the hub -- reports the current score
+        /// (so analytics/save data see a real session end) and guards against firing twice.
+        /// Reachable two ways: the hardware/gesture Back button (mapped to Keyboard.escapeKey in
+        /// the new Input System) while on Frontline's own Main Menu, and GameUI's explicit
+        /// "back to library" button on any tabbed screen (Menu/Shop/Upgrades/Ranks) via
+        /// GameManager.ExitToHubOverride.
         /// </summary>
+        void RequestExit()
+        {
+            if (_reportedGameOver) return;
+            _reportedGameOver = true;
+            _context.ReportGameOver(GetScore());
+        }
+
         void Update()
         {
             if (_reportedGameOver) return;
 
             bool backPressed = Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame;
             if (backPressed && GameUI.Instance != null && GameUI.Instance.Screen == Screen_.Menu)
-            {
-                _reportedGameOver = true;
-                _context.ReportGameOver(GetScore());
-            }
+                RequestExit();
         }
     }
 }

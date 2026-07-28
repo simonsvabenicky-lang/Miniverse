@@ -118,20 +118,38 @@ namespace Miniverse.Hub
 
         void UnloadActiveGameScene()
         {
-            if (_activeGameScene.IsValid())
-                SceneManager.UnloadSceneAsync(_activeGameScene);
-
             if (_activeGame != null)
             {
                 float duration = Time.realtimeSinceStartup - _gameStartTime;
                 AnalyticsService.LogGameEnd(_activeGameId, duration, _pendingScore);
             }
 
-            if (_homeUIRoot != null) _homeUIRoot.SetActive(true);
-            if (_homeEventSystem != null) _homeEventSystem.SetActive(true);
-
             _activeGame = null;
             _activeGameId = null;
+
+            // Home only reactivates once the old scene has actually finished unloading, not the
+            // instant UnloadSceneAsync is *requested* -- reactivating immediately left Home's
+            // Canvas active while the outgoing minigame's own GameObjects were still mid-teardown
+            // for however many frames that takes, which is exactly the several-seconds-long
+            // overlap (minigame's last frame + Home's tiles both visible) seen on-device after
+            // exiting FlowSort. Waiting for .completed removes the window entirely -- worst case
+            // is a brief blank frame between the two, not a double-exposure of both.
+            if (_activeGameScene.IsValid())
+            {
+                var op = SceneManager.UnloadSceneAsync(_activeGameScene);
+                if (op != null) op.completed += _ => ReactivateHome();
+                else ReactivateHome();
+            }
+            else
+            {
+                ReactivateHome();
+            }
+        }
+
+        void ReactivateHome()
+        {
+            if (_homeUIRoot != null) _homeUIRoot.SetActive(true);
+            if (_homeEventSystem != null) _homeEventSystem.SetActive(true);
         }
     }
 }
