@@ -340,3 +340,76 @@ straight copy just works.
   to update later via `FlowSortCatalogEntry.cs` without touching the `gameId` save key.
 - **CrowdBattler / "We Are Warriors"** (`D:\CrowdBattler`) — a crowd/stickman battler,
   applicationId `com.simonsvabenicky.mobmarch`. Not graduated yet as of 2026-07-27.
+
+## Shared asset library + Home's real UI (2026-07-29)
+
+**Asset library**: `D:\GameAssets\` (pre-existing, see its own `README.md`) got a second,
+much larger batch of free UI/icon/VFX/audio packs sorted in, aimed specifically at giving
+the hub a "premium casual mobile" look (thick borders, layered shadows, glossy buttons,
+per Simon's reference screenshots). New top-level categories: `UI/`, `Icons/`, `VFX/`,
+plus `Audio/SFX` and `Audio/UI-SFX`. Six packs in the batch were exact re-downloads of
+packs already catalogued (deduped, originals kept); two long-standing "pending" gaps
+(Modular Sci-Fi MegaKit, Fantasy Ambient pack) finally got filled in. Full pack-by-pack
+license/source table is in the library's own README, not repeated here.
+
+**Home's UI**, per Simon's "give the skeleton app real UI... have pocketverse feel like an
+app" ask: the flat black/white Canvas (a Title, a bare `GridLayoutGroup`, an empty label,
+nothing else) is gone. New pieces:
+
+- `Assets/_Hub/Art/UI/` — a curated Kenney UI Pack subset (Blue/Grey/Yellow/Green gloss +
+  gradient buttons, panels, a few icons), imported via `HubUIImporter.cs` (mirrors
+  Frontline's own `UIImporter.cs` border-slicing logic exactly).
+- `HubCanvasBuilder.cs` (`Assets/Editor`) — builds Home's whole UI in code, same
+  "generated, not hand-authored" contract as Frontline's `CanvasBuilder.cs`, which this
+  deliberately mirrors helper-for-helper. Background, a persistent top bar
+  (profile/settings/sound/lives/cash) + bottom tab bar (Home/Store), and Settings/Store/
+  Profile overlay panels.
+- `ProceduralHomeBackground.cs` — a baked gradient + soft glow + scattered dot doodles,
+  same technique as Frontline's `ProceduralMenuBackground`.
+- `ProceduralAvatarIcon.cs` / hub-local copy of `ProceduralHeartIcon.cs` — no profile or
+  heart sprite exists in the imported Kenney subset, so these bake simple silhouettes at
+  Awake, same reasoning as Frontline's original heart icon.
+- `HomeScreenController.cs` (rewritten) — game tiles are now real cards: a 9-sliced panel
+  with a baked-in gradient/shadow (`button_rectangle_depth_gradient`, not the flat
+  `input_rectangle`), a second darker copy offset behind for an actual drop shadow, a
+  coloured round badge with the game's initial (no `MiniGameDef.icon` is set on any
+  graduated game yet, so this is an honest placeholder, not a fake icon — swaps to the
+  real one automatically the moment a game ships one), and the name below.
+- `HubEconomy.cs` / `HubAudio.cs` / `HubStats.cs` — real, `PlayerPrefs`-persisted state
+  behind the lives/cash counters, the sound toggle, and Profile's "games played" stat.
+  Nothing spends/grants cash or lives yet (no game is wired to a shared economy), so it
+  starts at a fixed opening balance rather than pretending a real economy exists — same
+  honesty as the Store panel, which is a "more coming soon" placeholder, not a fake shop.
+- `HomeShellController.cs` — wires all of the above at runtime (Button clicks are C#
+  delegates, don't survive `EditorSceneManager.SaveScene`, same reasoning as everywhere
+  else in this codebase).
+
+**Bug found and fixed during this pass**: `GameObject.Find` cannot locate an *inactive*
+GameObject, even mid-path (`"Canvas/SettingsPanel"` fails to resolve if `SettingsPanel`
+itself is inactive, regardless of `Canvas` being active). First pass baked Settings/Store/
+Profile inactive directly in `HubCanvasBuilder`, which meant `HomeShellController.Awake()`
+silently failed to find any of them — tapping the settings gear just hid the game grid and
+showed nothing. Fixed by leaving all three active in the saved scene (matching how
+Frontline's own `CanvasBuilder` leaves every screen active and only `GameUI`'s
+`RefreshCanvasVisibility` — here, `HomeShellController`'s `ShowHome()` call at the end of
+`Awake()` — hides the non-current ones, *after* they've already been found). Also fixed:
+two icons (`ProceduralAvatarIcon`'s fill colour, the cash pill's coin sprite) were near-white
+against light backgrounds and read as invisible on-device; and Home's title overlapped the
+new top bar (anchor math didn't account for the top bar's actual height fraction). All
+confirmed fixed via on-device screenshots after each round.
+
+**Found, NOT fixed here — pre-existing, not caused by this pass**: Frontline's own Shell
+top-bar buttons (the "X" library button and the settings gear specifically) don't respond
+to taps at all, in every screen state tested (main menu, mid-gameplay, the death screen).
+Isolated carefully before concluding this: `PLAY`, `RESTART`, and `MAIN MENU` (different
+canvases, same project, same build) all responded normally to taps computed the same way,
+and the hardware Back key didn't trigger `RequestExit()` either. To rule out a hub-side
+regression, FlowSort's exit button (a completely different mechanism —
+`RevealGameManager.ExitButton`, not `GameManager.ExitToHubOverride`) was tested fresh in
+the same build and returned to a clean Home instantly, proving `HubLauncher`'s
+unload/reload path (and the `HomeBackgroundCamera` fix) both still work correctly. That
+narrows this specifically to Frontline's own Shell buttons / `GameManager.ExitToHubOverride`
+wiring — nothing in `Assets/Games/Frontline/` was touched this session. Not investigated
+further since it's out of scope for the hub work this pass was about; worth a dedicated
+look next time Frontline's own session picks up (same pattern as the Paused/Death-screen
+bug already flagged above with its own worktree).

@@ -83,6 +83,7 @@ namespace Miniverse.Hub
             _gameStartTime = Time.realtimeSinceStartup;
             _pendingScore = 0;
             AnalyticsService.LogGameLaunch(_activeGameId);
+            HubStats.IncrementGamesPlayed();
         }
 
         static IMiniGame FindMiniGameIn(Scene scene)

@@ -59,55 +59,35 @@ namespace Miniverse.EditorTools
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             var scaler = canvasGO.GetComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(1080, 1920); // portrait mobile
+            // 540x960 -- matches Frontline's own CanvasScaler reference exactly (see its
+            // CanvasBuilder.Build()), not this scene's previous 1080x1920: every pixel size
+            // HubCanvasBuilder borrows from Frontline's dimensions (topBarH, panel widths,
+            // button sizes) is only proportioned correctly against the same reference the
+            // numbers were measured against. Using the same reference across both also means a
+            // 44px icon button reads as the same relative size in both apps, not just the same
+            // sprite -- part of "shared across the platform", not just a coincidence.
+            scaler.referenceResolution = new Vector2(540, 960);
             scaler.matchWidthOrHeight = 0.5f;
 
-            var titleGO = new GameObject("Title", typeof(RectTransform), typeof(Text));
-            titleGO.transform.SetParent(canvasGO.transform, false);
-            var titleRect = titleGO.GetComponent<RectTransform>();
-            titleRect.anchorMin = new Vector2(0f, 1f);
-            titleRect.anchorMax = new Vector2(1f, 1f);
-            titleRect.pivot = new Vector2(0.5f, 1f);
-            titleRect.anchoredPosition = new Vector2(0f, -40f);
-            titleRect.sizeDelta = new Vector2(0f, 120f);
-            var title = titleGO.GetComponent<Text>();
-            title.text = "PocketVerse";
-            title.fontSize = 64;
-            title.alignment = TextAnchor.MiddleCenter;
-            title.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            title.color = Color.white;
+            var result = Miniverse.EditorTools.HubCanvasBuilder.Build(canvasGO.transform);
 
-            var scrollGO = new GameObject("GameGrid", typeof(RectTransform), typeof(GridLayoutGroup), typeof(ContentSizeFitter));
-            scrollGO.transform.SetParent(canvasGO.transform, false);
-            var gridRect = scrollGO.GetComponent<RectTransform>();
-            gridRect.anchorMin = new Vector2(0.05f, 0.05f);
-            gridRect.anchorMax = new Vector2(0.95f, 0.85f);
-            gridRect.offsetMin = Vector2.zero;
-            gridRect.offsetMax = Vector2.zero;
-            var grid = scrollGO.GetComponent<GridLayoutGroup>();
-            grid.cellSize = new Vector2(320f, 320f);
-            grid.spacing = new Vector2(24f, 24f);
-            grid.childAlignment = TextAnchor.UpperCenter;
-
-            var emptyLabelGO = new GameObject("EmptyStateLabel", typeof(RectTransform), typeof(Text));
-            emptyLabelGO.transform.SetParent(canvasGO.transform, false);
-            var emptyRect = emptyLabelGO.GetComponent<RectTransform>();
-            emptyRect.anchorMin = new Vector2(0.1f, 0.4f);
-            emptyRect.anchorMax = new Vector2(0.9f, 0.6f);
-            emptyRect.offsetMin = Vector2.zero;
-            emptyRect.offsetMax = Vector2.zero;
-            var emptyLabel = emptyLabelGO.GetComponent<Text>();
-            emptyLabel.text = "No games yet — graduate one into Assets/Games/ to see it here.";
-            emptyLabel.alignment = TextAnchor.MiddleCenter;
-            emptyLabel.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            emptyLabel.color = new Color(0.7f, 0.7f, 0.7f);
-
-            var bootstrapGO = new GameObject("HubBootstrap", typeof(HubLauncher), typeof(HomeScreenController));
+            var bootstrapGO = new GameObject("HubBootstrap", typeof(HubLauncher), typeof(HomeScreenController), typeof(HomeShellController));
             var homeController = bootstrapGO.GetComponent<HomeScreenController>();
             var so = new SerializedObject(homeController);
-            so.FindProperty("_gridParent").objectReferenceValue = gridRect;
-            so.FindProperty("_emptyStateLabel").objectReferenceValue = emptyLabel;
+            so.FindProperty("_gridParent").objectReferenceValue = result.GridParent;
+            so.FindProperty("_emptyStateLabel").objectReferenceValue = result.EmptyStateLabel;
+            so.FindProperty("_cardBackground").objectReferenceValue = result.CardBackground;
+            var badgeProp = so.FindProperty("_badgeSprites");
+            badgeProp.arraySize = result.BadgeSprites.Length;
+            for (int i = 0; i < result.BadgeSprites.Length; i++)
+                badgeProp.GetArrayElementAtIndex(i).objectReferenceValue = result.BadgeSprites[i];
             so.ApplyModifiedPropertiesWithoutUndo();
+
+            var shellController = bootstrapGO.GetComponent<HomeShellController>();
+            var shellSo = new SerializedObject(shellController);
+            shellSo.FindProperty("_soundOnIcon").objectReferenceValue = result.SoundOnIcon;
+            shellSo.FindProperty("_soundOffIcon").objectReferenceValue = result.SoundOffIcon;
+            shellSo.ApplyModifiedPropertiesWithoutUndo();
 
             var launcher = bootstrapGO.GetComponent<HubLauncher>();
             var launcherSo = new SerializedObject(launcher);
