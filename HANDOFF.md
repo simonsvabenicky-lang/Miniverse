@@ -183,17 +183,11 @@ screens simultaneously in a stuck state — confirmed via testing, not something
 introduced. There's already a dedicated Frontline-side session/worktree
 (`D:\Frontline\.claude\worktrees\adoring-ptolemy-afe780`, branch
 `claude/adoring-ptolemy-afe780`) working on exactly this; no action needed from the hub
-side. Separately, testing also turned up what looks like a **stale-frame/compositor
-artifact** on the physical test device (a Huawei running EMUI, visible in logcat as
-`Hwaps`/`HwApsManager` overlay noise): after a clean RESTART, `adb shell screencap` would
-sometimes keep showing Frontline's old Death-screen pixels for several seconds even though
-diagnostic logging proved the scene had genuinely, quickly unloaded (`UnloadSceneAsync`
-completing in ~30ms) and Home was functionally interactive underneath the whole time (a
-second tap correctly launched a fresh Frontline instance). Current read: this is a testing
-artifact specific to `adb`-based screenshotting on this device, not a real bug in
-`HubLauncher`'s unload logic — but worth a sanity check by just watching the physical
-screen directly next time, rather than only trusting `screencap`, before fully closing
-this out.
+side. Separately, testing also turned up Frontline's old Death-screen pixels lingering
+under Home's tiles for several seconds after a RESTART. **Originally misdiagnosed as a
+`screencap`/compositor testing artifact — it wasn't.** See "Hub back button + exit
+sequencing" below for the real cause (Home's scene never had a camera, so nothing cleared
+the screen once the last minigame camera unloaded) and the actual fix.
 
 **Process note for future graduations:** mid-investigation here, I let the shared
 Android-device lock go stale for 40+ minutes while deep in a debugging session instead of
@@ -256,20 +250,14 @@ PocketVerse's PlayerSettings if ever invoked.
    Regression-tested against Frontline afterward (PLAY still works, 62fps, no bleed-through)
    since this touches shared hub code every graduated game depends on.
 
-**Same stale-frame/screencap artifact as Frontline's RESTART investigation, now
-reproduced a second time:** immediately after the exit button correctly unloads FlowSort
-(`analytics.jsonl` confirms `game_end` fires right on schedule), `adb shell screencap`
-reliably shows FlowSort's last frame and Home's tiles overlapping for several seconds,
-even waiting it out doesn't clear it in the screenshot. But tapping the FlowSort tile
-location again while this is showing correctly starts a *fresh* FlowSort session every
-time (confirmed via a new `game_launch` in analytics and a visibly fresh grid) — proving
-Home is genuinely interactive underneath throughout, not stuck. Given this now reproduced
-identically across two different games' transitions on this same physical device, this
-looks like a real quirk of `adb shell screencap` on this particular Huawei/EMUI device
-(compositor noise from `HwApsManager` visible in logcat both times) rather than anything
-wrong in `HubLauncher`'s unload logic — not chasing it further, but worth knowing if a
-future graduation's on-device screenshots look "stuck" right after an exit/restart: check
-interactivity (tap through it) before assuming a real bug.
+Immediately after the exit button correctly unloads FlowSort (`analytics.jsonl` confirms
+`game_end` fires right on schedule), `adb shell screencap` reliably showed FlowSort's last
+frame and Home's tiles overlapping for several seconds. **Originally misdiagnosed as a
+`screencap`/compositor artifact specific to this Huawei/EMUI device — it wasn't.** See
+"Hub back button + exit sequencing" below for the real cause (Home's scene never had a
+camera, so nothing cleared the buffer once the last camera in the loaded scene set was
+destroyed) and the fix (`HomeBackgroundCamera`), confirmed via a direct on-device report
+from Simon that the overlap was real, not a screenshot tooling quirk.
 
 ## Hub back button + exit sequencing (2026-07-28)
 
@@ -289,17 +277,33 @@ Canvas/EventSystem the instant `UnloadSceneAsync` was *requested*, not once it a
 finished — a real (if narrow) window where both the outgoing minigame and Home could be
 active simultaneously. Home now only reactivates in the unload's `.completed` callback.
 
-**Still open:** after this fix, `adb shell screencap` continued to show what looks like
-Frontline's Menu and Home's tiles overlapping for 1+ second after tapping the new X
-button — third time this exact pattern has shown up (see Frontline's RESTART
-investigation and FlowSort's exit above), and a rapid-fire sequence of screencaps taken
-across the transition differ only in Frontline's animated background glow, not in the
-overlap itself, while `analytics.jsonl` and a follow-up tap both prove Home is genuinely
-live and responsive underneath the whole time. Increasingly confident this is a quirk of
-this specific device's screen-capture/compositor path rather than a real rendering bug —
-but that conclusion rests entirely on `screencap`, the only tool available for visual
-verification here. Worth a direct look at the physical screen during a real exit (not
-through `screencap`) before fully closing this out.
+**Correction, same day:** the "screencap artifact" read above (and the two earlier writeups
+it references, in the Frontline and FlowSort graduation sections) was wrong. Simon
+confirmed on the physical device, with his own eyes, that the overlap is real: pressing
+the new X button left the outgoing game's last frame fully visible with Home's tile boxes
+drawn on top of it. Real root cause: **Home's own scene has never had a camera at all** —
+its Canvas is ScreenSpaceOverlay, which doesn't need one to draw, so nothing was ever
+clearing the screen except whichever minigame's own camera happened to be loaded at the
+time. The instant that minigame's scene unloads and takes its camera with it, there are
+zero cameras left anywhere in the loaded scene set, so the GPU just keeps showing that
+camera's last rendered frame indefinitely -- Home's tiles/title draw fine on top (Canvas
+UI doesn't need a clear step), but nothing ever draws over the stale background behind
+them. Invisible on the very first launch only because Home's intended background happens
+to already be dark, so "undefined/uncleared" and "cleared to Home's own color" looked the
+same by coincidence.
+
+Fixed properly: `HubSceneBuilder.Build()` now adds a `HomeBackgroundCamera` to Home's own
+scene -- `SolidColor` clear flag, `cullingMask = 0` (nothing to render, it only exists to
+clear), `depth = -100` so any minigame's own camera (default depth 0) always draws over it
+while one's loaded. Deliberately **not** tagged `MainCamera`: FlowSort's `TapInputRouter`
+(and any future minigame) resolves taps via `Camera.main`, and a second camera wearing
+that tag the moment a minigame is loaded alongside Home would make that lookup ambiguous.
+Verified on-device: both Frontline's and FlowSort's exits now land on a clean Home
+immediately (screenshot taken 1s after the tap, previously still showing the overlap after
+5+ seconds), and a follow-up Frontline PLAY session confirmed no rendering regression
+(clean 60fps, no interference from the new camera). The `UnloadActiveGameScene` sequencing
+change above is still worth keeping (real, if narrow, correctness improvement) but was
+never what fixed this -- the missing camera was the whole bug.
 
 ## Current state (2026-07-26)
 

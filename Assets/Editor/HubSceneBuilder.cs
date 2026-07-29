@@ -24,6 +24,27 @@ namespace Miniverse.EditorTools
         {
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
+            // Home has never had a camera -- its Canvas is ScreenSpaceOverlay, which doesn't
+            // need one to draw. That's fine while a minigame's own camera is doing the actual
+            // frame-clearing, but the moment a minigame's scene unloads and takes its camera
+            // with it, there are zero cameras left in the whole loaded scene set. With nothing
+            // left to clear the color buffer, the GPU just keeps showing the outgoing minigame's
+            // last rendered frame indefinitely, with only Home's tiles/title drawn on top of it
+            // (Canvas UI doesn't clear first, it just draws on whatever's already there) -- the
+            // "old game frozen behind Home's tiles" overlap seen on-device after exiting FlowSort
+            // or Frontline. Deliberately NOT tagged MainCamera: FlowSort's TapInputRouter (and
+            // any future minigame) resolves world taps via Camera.main, and a second camera
+            // wearing that tag would make that lookup ambiguous the moment a minigame is loaded
+            // alongside Home. Depth -100 so a minigame's own (default depth 0) camera always
+            // renders after this one and is what's actually visible while playing -- this camera
+            // only matters in the gap where it's the sole camera left.
+            var cameraGO = new GameObject("HomeBackgroundCamera", typeof(Camera));
+            var homeCamera = cameraGO.GetComponent<Camera>();
+            homeCamera.clearFlags = CameraClearFlags.SolidColor;
+            homeCamera.backgroundColor = new Color(0.07f, 0.07f, 0.09f);
+            homeCamera.cullingMask = 0;
+            homeCamera.depth = -100f;
+
             // Project is Input System-only (activeInputHandler: 1, matching Frontline) so this
             // must be InputSystemUIInputModule, not the legacy StandaloneInputModule — the
             // legacy module reads UnityEngine.Input, which is disabled entirely in this mode
