@@ -1,298 +1,694 @@
+using System.Collections.Generic;
+using System.Linq;
+using FlowSort.Blocks;
 using FlowSort.Gameplay;
 using FlowSort.Hub;
-using FlowSort.UI;
 using TMPro;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
+using UnityEngine.TextCore.LowLevel;
 using UnityEngine.UI;
 
 namespace FlowSort.EditorTools
 {
     /// <summary>
-    /// Builds Main.unity from scratch, in code — same reasoning as Frontline/PocketVerse: the
-    /// scene is a build artifact, never hand-edited in the Editor.
+    /// Builds Assets/Scenes/Main.unity from scratch, in code. The scene is a build artifact and
+    /// is never hand-edited — same rule as Frontline/PocketVerse.
     ///
     ///   Unity.exe -batchmode -quit -projectPath . -executeMethod FlowSort.EditorTools.SceneBuilder.Build
     /// </summary>
     public static class SceneBuilder
     {
-        // Named FlowSortMain, not Main -- Frontline's graduated scene is already
-        // Assets/Games/Frontline/Scenes/Main.unity, and Unity's SceneManager.LoadScene(name)
-        // resolves scenes by filename across the whole build; two scenes sharing "Main" would
-        // be ambiguous. Flagged as a known risk in FlowSort's own HANDOFF before graduation.
-        const string ScenePath = "Assets/Games/FlowSort/Scenes/FlowSortMain.unity";
-        const string ArtRoot = "Assets/Games/FlowSort/Art/Kenney/";
-        static readonly Color BackgroundColor = new Color32(0xFB, 0xF0, 0xDC, 0xFF); // warm cream, not blue
+        public static string ScenePath => ProjectPaths.MainScene;
+
+        /// <summary>Every glyph the HUD and turret labels can display, baked into a static atlas.</summary>
+        const string Glyphs =
+            "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz .,:;!?-+*/%()x";
 
         [MenuItem("FlowSort/Rebuild Main Scene")]
         public static void Build()
         {
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
-            BuildCamera();
+            var art = BuildArt();
+            var camera = BuildCamera();
+            BuildLight();
+            BuildVolume(camera);
+
+            var frame = new GameObject("Frame", typeof(FrameRenderer));
+            var frameRenderer = frame.GetComponent<FrameRenderer>();
+            frameRenderer.Material = art.BackgroundMaterial;
+            frameRenderer.SlotMaterial = art.SlotMaterial;
+
+            var trackGO = new GameObject("ConveyorTrack", typeof(ConveyorTrack));
+            var track = trackGO.GetComponent<ConveyorTrack>();
+            track.TrackMaterial = art.TrackMaterial;
+            track.StraightModel = art.RoadStraightModel;
+            track.CornerModel = art.RoadCornerModel;
+            track.KerbModel = art.RoadKerbModel;
+            track.GateModel = art.GateModel;
+            track.BarrierModelA = art.BarrierRedModel;
+            track.BarrierModelB = art.BarrierWhiteModel;
+
+            var wallGO = new GameObject("BlockWall", typeof(WallMesh), typeof(BlockWall));
+            wallGO.GetComponent<WallMesh>().BlockMaterial = art.BlockMaterial;
+            var wall = wallGO.GetComponent<BlockWall>();
+
+            var ballsGO = new GameObject("BallSystem", typeof(BallSystem));
+            var balls = ballsGO.GetComponent<BallSystem>();
+            balls.Wall = wall;
+            balls.BallMaterial = art.BallMaterial;
+
+            // Slot positions come from the runtime Layout — they depend on aspect.
+            var fxGO = new GameObject("ImpactFX", typeof(ImpactFX));
+            var fx = fxGO.GetComponent<ImpactFX>();
+            fx.ParticleMaterial = art.ParticleMaterial;
+
+            AudioBuilder.Build();
+
+            var slotGO = new GameObject("TowerSlots", typeof(TowerSlots));
+            var slots = slotGO.GetComponent<TowerSlots>();
+            slots.Art = art;
+            slots.Balls = balls;
+            slots.Wall = wall;
+            slots.Fx = fx;
+            slots.TapCamera = camera;
+
+            var walletGO = new GameObject("CurrencyWallet", typeof(CurrencyWallet));
+            var wallet = walletGO.GetComponent<CurrencyWallet>();
+
+            var gameGO = new GameObject("Game", typeof(BlockBreakGame));
+            // Graduation-only (2026-07-31): PocketVerse's hub wrapper, attached to the same
+            // GameObject as BlockBreakGame per FlowSortMiniGame's own doc comment. Standalone
+            // FlowSort has no equivalent -- Miniverse.Hub/IMiniGame don't exist there.
+            gameGO.AddComponent<FlowSortMiniGame>();
+            var game = gameGO.GetComponent<BlockBreakGame>();
+            game.Wall = wall;
+            game.Balls = balls;
+            game.Slots = slots;
+            game.Wallet = wallet;
+            game.Fx = fx;
+            game.Pictures = LoadPictures();
+
+            var hud = BuildCanvas(art, game);
+            game.Hud = hud;
+            hud.Game = game;
+
             new GameObject("EventSystem", typeof(EventSystem), typeof(InputSystemUIInputModule));
-            new GameObject("TapInputRouter", typeof(TapInputRouter));
 
-            var art = BuildArtRegistry();
-            var wallet = new GameObject("CurrencyWallet", typeof(CurrencyWallet)).GetComponent<CurrencyWallet>();
-
-            var gridGO = new GameObject("PuzzleGrid", typeof(PuzzleGrid));
-            var grid = gridGO.GetComponent<PuzzleGrid>();
-            grid.GridRoot = new GameObject("GridRoot").transform;
-            grid.GridRoot.SetParent(gridGO.transform, false);
-            grid.BackdropRoot = new GameObject("BackdropRoot").transform;
-            grid.BackdropRoot.SetParent(gridGO.transform, false);
-
-            var queueGO = new GameObject("CritterQueue", typeof(CritterQueue));
-            var queue = queueGO.GetComponent<CritterQueue>();
-            queue.QueueRoot = new GameObject("QueueRoot").transform;
-            queue.QueueRoot.SetParent(queueGO.transform, false);
-
-            var lanes = new FiringLane[GameTuning.LaneCount];
-            for (int i = 0; i < lanes.Length; i++)
-            {
-                var laneGO = new GameObject($"Lane_{i}", typeof(FiringLane));
-                laneGO.transform.position = new Vector3(GameTuning.LaneX[i], GameTuning.LaneY, 0f);
-                var lane = laneGO.GetComponent<FiringLane>();
-                lane.Grid = grid;
-                lanes[i] = lane;
-            }
-
-            var gmGO = new GameObject("GameManager", typeof(RevealGameManager));
-            var gm = gmGO.GetComponent<RevealGameManager>();
-            gm.Grid = grid;
-            gm.Queue = queue;
-            gm.Lanes = lanes;
-            gm.Wallet = wallet;
-
-            queue.GameManager = gm;
-            foreach (var lane in lanes) lane.GameManager = gm;
-
-            gmGO.AddComponent<FlowSortMiniGame>();
-
-            BuildCanvas(art, wallet, gm);
-
-            System.IO.Directory.CreateDirectory("Assets/Games/FlowSort/Scenes");
+            System.IO.Directory.CreateDirectory(ProjectPaths.Scenes);
             EditorSceneManager.SaveScene(scene, ScenePath);
 
-            // Not touching EditorBuildSettings.scenes here — PocketVerse/BuildSceneSync.Sync()
-            // is the source of truth for the hub's build scene list (rebuilds it from every
-            // Assets/Games/*/Scenes/*.unity + Home on disk). Clobbering it here would silently
-            // drop Home and every other graduated game from Build Settings, same bug fixed
-            // during Frontline's graduation.
+            // MenuBuilder.RegisterScenes() removed at graduation: PocketVerse doesn't ship
+            // Menu.unity at all (the hub is FlowSort's front end here, see FlowSortMiniGame's doc
+            // comment), and this project has already been bitten once by a scene builder that sets
+            // EditorBuildSettings.scenes itself -- it silently drops every other graduated game's
+            // scene the moment it runs standalone. BuildSceneSync is the sole source of truth for
+            // Build Settings inside PocketVerse.
 
-            Debug.Log($"[FlowSort] Main scene rebuilt at {ScenePath}");
+            Debug.Log($"[FlowSort] Main scene rebuilt at {ScenePath} " +
+                      $"({game.Pictures.Length} pictures, {BlockTuning.WallWidth}x{BlockTuning.WallHeight} wall)");
         }
 
-        static void BuildCamera()
+        // --- Assets ---
+
+        static PixelPicture[] LoadPictures()
         {
-            var camGO = new GameObject("Main Camera", typeof(Camera));
-            camGO.tag = "MainCamera";
-            var cam = camGO.GetComponent<Camera>();
-            cam.orthographic = true;
-            cam.orthographicSize = 5f;
-            cam.clearFlags = CameraClearFlags.SolidColor;
-            cam.backgroundColor = BackgroundColor;
-            camGO.transform.position = new Vector3(0f, 0f, -10f);
+            var pics = AssetDatabase.FindAssets("t:PixelPicture")
+                .Select(AssetDatabase.GUIDToAssetPath)
+                .OrderBy(p => p)
+                .Select(AssetDatabase.LoadAssetAtPath<PixelPicture>)
+                .Where(p => p != null && p.Cells != null && p.Cells.Length > 0)
+                .ToArray();
+
+            if (pics.Length == 0)
+                Debug.LogError("[FlowSort] No PixelPicture assets found — run FlowSort/Generate Pictures first.");
+
+            return pics;
         }
 
-        static ArtRegistry BuildArtRegistry()
+        static BlockArt BuildArt()
         {
-            var go = new GameObject("ArtRegistry", typeof(ArtRegistry));
-            var art = go.GetComponent<ArtRegistry>();
+            System.IO.Directory.CreateDirectory(ProjectPaths.Materials);
 
-            string[] colorFolders = { "blue", "green", "pink", "purple", "red", "yellow" };
-            for (int i = 0; i < colorFolders.Length; i++)
-                art.BlockSprites[i] = Load($"{ArtRoot}ShapeCharacters/{colorFolders[i]}_body_squircle.png");
+            var go = new GameObject("BlockArt", typeof(BlockArt));
+            var art = go.GetComponent<BlockArt>();
 
-            string[] faceFiles = { "face_a", "face_b", "face_c", "face_d" };
-            for (int i = 0; i < faceFiles.Length; i++)
-                art.FaceSprites[i] = Load($"{ArtRoot}ShapeCharacters/{faceFiles[i]}.png");
+            // Baked first, so a scene rebuild can never ship a sheet that disagrees with the
+            // palette the rest of the scene was built against.
+            art.BlockAtlasTexture = BlockAtlasBuilder.Build();
+            art.SlotFrameSprite = Load<Texture2D>($"{ProjectPaths.GuiBundle}/SlotFrame.png");
+            art.PanelSprite = Load<Texture2D>($"{ProjectPaths.GuiBundle}/Panel.png");
 
-            art.KeyIcon = Load($"{ArtRoot}Icons/key.png");
-            art.CoinIcon = Load($"{ArtRoot}Icons/coin.png");
-            art.StarIcon = Load($"{ArtRoot}Icons/star.png");
-            art.LockedIcon = Load($"{ArtRoot}Icons/locked.png");
-            art.UnlockedIcon = Load($"{ArtRoot}Icons/unlocked.png");
+            art.BlockMaterial = Material("M_Block", "FlowSort/BlockLit", m =>
+            {
+                if (art.BlockAtlasTexture != null) m.SetTexture("_MainTex", art.BlockAtlasTexture);
+                m.SetFloat("_Cutoff", 0.35f);
+                m.SetFloat("_AmbientBoost", 0.5f);
+                m.SetFloat("_Saturate", 0.15f);
+            });
 
-            art.PanelSprite = Load($"{ArtRoot}UIPack/Grey/button_rectangle_flat.png");
-            art.RoundButtonGrey = Load($"{ArtRoot}UIPack/Grey/button_round_flat.png");
-            string[] powerupColors = { "Blue", "Green", "Red", "Yellow" };
-            for (int i = 0; i < powerupColors.Length; i++)
-                art.RoundButtonColored[i] = Load($"{ArtRoot}UIPack/{powerupColors[i]}/button_round_flat.png");
+            art.TrackMaterial = Material("M_Track", "FlowSort/VertexLit", m =>
+            {
+                m.SetFloat("_AmbientBoost", 0.6f);
+            });
+
+            // Deliberately untextured. The kit's turret ships with a tan/grey colormap, and
+            // multiplying a tower's colour through it turned every tower muddy brown or black —
+            // exactly the palette the art direction rules out. A white base lets _BaseColor,
+            // set per tower through a property block, be the colour you actually see.
+            art.TowerMaterial = Material("M_Tower", "Universal Render Pipeline/Lit", m =>
+            {
+                m.SetColor("_BaseColor", Color.white);
+                m.SetFloat("_Smoothness", 0.25f);
+                m.SetFloat("_Metallic", 0f);
+            });
+
+            // SrcAlpha / One = additive, so the ball's vertex-alpha gradient reads as a glow trail.
+            art.BallMaterial = Material("M_BallGlow", "FlowSort/UnlitQuad", m =>
+            {
+                m.SetFloat("_BlendSrc", (float)BlendMode.SrcAlpha);
+                m.SetFloat("_BlendDst", (float)BlendMode.One);
+                m.SetColor("_Color", new Color(1f, 0.98f, 0.9f, 1f));
+            });
+
+            // SrcAlpha / OneMinusSrcAlpha = standard alpha blend for the opaque backdrop gradient.
+            art.BackgroundMaterial = Material("M_Background", "FlowSort/UnlitQuad", m =>
+            {
+                m.SetFloat("_BlendSrc", (float)BlendMode.SrcAlpha);
+                m.SetFloat("_BlendDst", (float)BlendMode.OneMinusSrcAlpha);
+            });
+
+            // The landing squares, straight from the GUI bundle: same authored bevel and outline
+            // the blocks use, so an empty slot reads as part of the same set of furniture.
+            art.SlotMaterial = Material("M_Slot", "FlowSort/UnlitQuad", m =>
+            {
+                m.SetFloat("_BlendSrc", (float)BlendMode.SrcAlpha);
+                m.SetFloat("_BlendDst", (float)BlendMode.OneMinusSrcAlpha);
+                if (art.SlotFrameSprite != null) m.SetTexture("_MainTex", art.SlotFrameSprite);
+            });
+
+            // Alpha-blended so debris reads as solid chips rather than glowing embers.
+            art.ParticleMaterial = Material("M_Particle", "FlowSort/UnlitQuad", m =>
+            {
+                m.SetFloat("_BlendSrc", (float)BlendMode.SrcAlpha);
+                m.SetFloat("_BlendDst", (float)BlendMode.OneMinusSrcAlpha);
+                var dirt = AssetDatabase.LoadAssetAtPath<Texture2D>($"{ProjectPaths.Particles}/dirt_02.png");
+                if (dirt != null) m.SetTexture("_MainTex", dirt);
+            });
+
+            art.TurretCommonModel = Load<GameObject>($"{ProjectPaths.TowerDefense}/weapon-turret.fbx");
+            art.TurretGoldModel = Load<GameObject>($"{ProjectPaths.TowerDefense}/weapon-cannon.fbx");
+
+            art.RoadStraightModel = Load<GameObject>($"{ProjectPaths.RacingKit}/roadStraight.fbx");
+            art.RoadCornerModel = Load<GameObject>($"{ProjectPaths.RacingKit}/roadCornerSmall.fbx");
+            art.RoadKerbModel = Load<GameObject>($"{ProjectPaths.RacingKit}/roadCornerSmallBorder.fbx");
+            art.GateModel = Load<GameObject>($"{ProjectPaths.RacingKit}/overheadRoundColored.fbx");
+            art.BarrierRedModel = Load<GameObject>($"{ProjectPaths.RacingKit}/barrierRed.fbx");
+            art.BarrierWhiteModel = Load<GameObject>($"{ProjectPaths.RacingKit}/barrierWhite.fbx");
+
+            art.ParticleDirt = Load<Texture2D>($"{ProjectPaths.Particles}/dirt_02.png");
+            art.ParticleSpark = Load<Texture2D>($"{ProjectPaths.Particles}/spark_04.png");
+            art.ParticleSmoke = Load<Texture2D>($"{ProjectPaths.Particles}/smoke_04.png");
+            art.ParticleStar = Load<Texture2D>($"{ProjectPaths.Particles}/star_08.png");
+
+            art.Font = BuildFont();
 
             return art;
         }
 
-        static Sprite Load(string path)
+        static T Load<T>(string path) where T : Object
         {
-            var sprite = AssetDatabase.LoadAssetAtPath<Sprite>(path);
-            if (sprite == null) Debug.LogError($"[FlowSort] Missing sprite at {path}");
-            return sprite;
+            var asset = AssetDatabase.LoadAssetAtPath<T>(path);
+            if (asset == null) Debug.LogError($"[FlowSort] Missing asset at {path}");
+            return asset;
         }
 
-        static void BuildCanvas(ArtRegistry art, CurrencyWallet wallet, RevealGameManager gm)
+        static Material Material(string name, string shaderName, System.Action<Material> configure)
+        {
+            string path = $"{ProjectPaths.Materials}/{name}.mat";
+            var shader = Shader.Find(shaderName);
+            if (shader == null)
+            {
+                Debug.LogError($"[FlowSort] Shader not found: {shaderName}");
+                return null;
+            }
+
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat == null)
+            {
+                mat = new Material(shader);
+                AssetDatabase.CreateAsset(mat, path);
+            }
+            else
+            {
+                mat.shader = shader;
+            }
+
+            configure?.Invoke(mat);
+            EditorUtility.SetDirty(mat);
+            return mat;
+        }
+
+        /// <summary>
+        /// Builds a TMP font asset from the CC0 Kenney Future TTF. Falls back to TMP's default
+        /// font rather than failing the whole scene build if generation isn't available.
+        /// </summary>
+        static TMP_FontAsset BuildFont()
+        {
+            string assetPath = ProjectPaths.FontAsset;
+
+            var existing = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>(assetPath);
+            if (existing != null) return existing;
+
+            var ttf = AssetDatabase.LoadAssetAtPath<Font>(ProjectPaths.FontSource);
+            if (ttf == null)
+            {
+                Debug.LogWarning("[FlowSort] Kenney Future.ttf not found; using TMP default font.");
+                return TMP_Settings.defaultFontAsset;
+            }
+
+            try
+            {
+                var created = TMP_FontAsset.CreateFontAsset(
+                    ttf, 90, 9, GlyphRenderMode.SDFAA, 1024, 1024,
+                    AtlasPopulationMode.Dynamic, enableMultiAtlasSupport: true);
+
+                if (created == null) throw new System.Exception("CreateFontAsset returned null");
+
+                created.name = "KenneyFuture SDF";
+                AssetDatabase.CreateAsset(created, assetPath);
+
+                // Bake the glyphs we actually use, then freeze the atlas. A Dynamic-mode asset
+                // would try to rasterise missing glyphs at runtime in the player, which is the
+                // fragile path; Static with a pre-populated atlas is what ships reliably.
+                created.TryAddCharacters(Glyphs);
+
+                // The atlas texture and material are separate objects. Without adding them as
+                // sub-assets they are never serialised, and the build then throws
+                // "m_AtlasTextures of TMP_FontAsset has not been assigned" and ships with
+                // invisible text — caught only because the build log was read, not the Editor.
+                if (created.atlasTextures != null)
+                {
+                    for (int i = 0; i < created.atlasTextures.Length; i++)
+                    {
+                        var tex = created.atlasTextures[i];
+                        if (tex == null) continue;
+                        tex.name = $"KenneyFuture Atlas {i}";
+                        if (!AssetDatabase.IsSubAsset(tex)) AssetDatabase.AddObjectToAsset(tex, created);
+                    }
+                }
+
+                if (created.material != null)
+                {
+                    created.material.name = "KenneyFuture Material";
+                    if (!AssetDatabase.IsSubAsset(created.material))
+                        AssetDatabase.AddObjectToAsset(created.material, created);
+                }
+
+                created.atlasPopulationMode = AtlasPopulationMode.Static;
+
+                EditorUtility.SetDirty(created);
+                AssetDatabase.SaveAssets();
+                AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceUpdate);
+
+                int atlasCount = created.atlasTextures?.Length ?? 0;
+                Debug.Log($"[FlowSort] Generated TMP font asset from Kenney Future (CC0): " +
+                          $"{atlasCount} atlas texture(s), {created.characterTable.Count} glyphs.");
+                return created;
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogWarning($"[FlowSort] TMP font generation failed ({e.Message}); using default.");
+                return TMP_Settings.defaultFontAsset;
+            }
+        }
+
+        // --- Scene pieces ---
+
+        static Camera BuildCamera()
+        {
+            // AudioListener is explicit here. Unity only adds one to the camera of a DEFAULT new
+            // scene, and these scenes are built from an empty one — so without this line the game
+            // shipped with a full sound bank, a music bed, and nothing audible at all.
+            var go = new GameObject("Main Camera", typeof(Camera), typeof(UniversalAdditionalCameraData),
+                                    typeof(AudioListener), typeof(GameCamera));
+            go.tag = "MainCamera";
+
+            var cam = go.GetComponent<Camera>();
+            cam.orthographic = false;
+            cam.fieldOfView = BlockTuning.CameraFov;
+            cam.nearClipPlane = 0.3f;
+            cam.farClipPlane = 200f;
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = BlockPalette.BackgroundTop;
+
+            go.transform.position = new Vector3(0f, 0f, -BlockTuning.CameraDistance);
+            go.transform.rotation = Quaternion.identity;
+
+            return cam;
+        }
+
+        static void BuildLight()
+        {
+            var go = new GameObject("Directional Light", typeof(Light));
+            var light = go.GetComponent<Light>();
+            light.type = LightType.Directional;
+            light.color = new Color32(0xFF, 0xF3, 0xDE, 0xFF);
+            light.intensity = 1.15f;
+            light.shadows = LightShadows.Soft;
+            go.transform.rotation = Quaternion.Euler(48f, -28f, 0f);
+        }
+
+        static void BuildVolume(Camera camera)
+        {
+            System.IO.Directory.CreateDirectory(ProjectPaths.Settings);
+            string path = ProjectPaths.Settings + "/BlockVolumeProfile.asset";
+
+            var profile = AssetDatabase.LoadAssetAtPath<VolumeProfile>(path);
+            if (profile == null)
+            {
+                profile = ScriptableObject.CreateInstance<VolumeProfile>();
+                AssetDatabase.CreateAsset(profile, path);
+            }
+
+            // Fetch-or-add, never add-if-absent: the profile is an asset that survives rebuilds,
+            // so guarding on Has<T>() silently kept the previous run's values forever.
+            var bloom = Override<Bloom>(profile);
+            bloom.threshold.overrideState = true;
+            bloom.threshold.value = 1.15f;
+            bloom.intensity.overrideState = true;
+            bloom.intensity.value = 0.45f;
+            bloom.scatter.overrideState = true;
+            bloom.scatter.value = 0.6f;
+
+            var vignette = Override<Vignette>(profile);
+            vignette.intensity.overrideState = true;
+            // Barely there. A heavier vignette is what made the board read as dim at the edges.
+            vignette.intensity.value = 0.12f;
+            vignette.smoothness.overrideState = true;
+            vignette.smoothness.value = 0.4f;
+
+            var tone = Override<Tonemapping>(profile);
+            tone.mode.overrideState = true;
+            tone.mode.value = TonemappingMode.Neutral;
+
+            EditorUtility.SetDirty(profile);
+
+            var go = new GameObject("Global Volume", typeof(Volume));
+            var volume = go.GetComponent<Volume>();
+            volume.isGlobal = true;
+            volume.priority = 0f;
+            volume.sharedProfile = profile;
+
+            camera.GetComponent<UniversalAdditionalCameraData>().renderPostProcessing = true;
+        }
+
+        static T Override<T>(VolumeProfile profile) where T : VolumeComponent
+            => profile.TryGet<T>(out var existing) ? existing : profile.Add<T>(true);
+
+        // --- UI ---
+
+        static BlockHud BuildCanvas(BlockArt art, BlockBreakGame game)
         {
             var canvasGO = new GameObject("Canvas", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
             var canvas = canvasGO.GetComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+
             var scaler = canvasGO.GetComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(540f, 960f);
+            scaler.referenceResolution = new Vector2(1080f, 1920f);
             scaler.matchWidthOrHeight = 0.5f;
 
-            var exitGO = CreateImage(canvasGO.transform, "ExitButton", art.RoundButtonGrey,
-                new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(24f, -20f), new Vector2(56f, 56f));
-            var exitButton = exitGO.AddComponent<Button>();
-            gm.ExitButton = exitButton;
-            AddLabel(exitGO.transform, "Label", "X",
-                Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero,
-                TextAlignmentOptions.Center, 26, new Color32(0x5A, 0x4A, 0x3C, 0xFF));
+            var hud = canvasGO.AddComponent<BlockHud>();
 
-            var levelText = AddLabel(canvasGO.transform, "LevelText", "Level 1",
-                new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(92f, -20f), new Vector2(220f, 56f),
-                TextAlignmentOptions.TopLeft, 32, new Color32(0x5A, 0x4A, 0x3C, 0xFF));
+            // Pivot is set to match the anchor for corner-anchored elements, so the position is a
+            // plain inset from that corner. With a centred pivot, "LEVEL 1" at x=150 with a
+            // 420-wide box started at x=-60 and got clipped off the left edge on device.
+            // "BACK", not "EXIT": Kenney Future's X glyph renders as something that reads as an
+            // H, so "EXIT" showed up on device as "EHIT". Avoid the letter entirely.
+            var exit = Button(canvasGO.transform, "ExitButton", "BACK",
+                new Vector2(0f, 1f), new Vector2(34f, -34f), new Vector2(230f, 116f), art.Font, 40f,
+                "BtnGrey");
+            hud.ExitButton = exit;
 
-            var keysPanel = CreateImage(canvasGO.transform, "KeysPanel", art.PanelSprite,
-                new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-20f, -20f), new Vector2(150f, 56f));
-            var coinImg = CreateImage(keysPanel.transform, "CoinIcon", art.CoinIcon,
-                new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(14f, 0f), new Vector2(36f, 36f));
-            var keysText = AddLabel(keysPanel.transform, "KeysText", "0",
-                new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-16f, 0f), new Vector2(90f, 44f),
-                TextAlignmentOptions.MidlineRight, 30, new Color32(0x5A, 0x4A, 0x3C, 0xFF));
+            hud.LevelText = Label(canvasGO.transform, "LevelText", "LEVEL 1", art.Font,
+                new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(290f, -50f), new Vector2(420f, 90f),
+                TextAlignmentOptions.Left, 46f, BlockPalette.TextInk);
 
-            var hud = canvasGO.AddComponent<RevealHud>();
-            hud.Wallet = wallet;
-            hud.LevelText = levelText;
-            hud.KeysText = keysText;
-            gm.Hud = hud;
+            hud.ScoreText = Label(canvasGO.transform, "ScoreText", "0", art.Font,
+                new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-40f, -40f), new Vector2(460f, 110f),
+                TextAlignmentOptions.Right, 76f, BlockPalette.TextInk);
 
-            BuildPowerupBar(canvasGO.transform, art, gm);
-            BuildPetShop(canvasGO.transform, art, wallet);
+            hud.BeltText = Label(canvasGO.transform, "BeltText", "0/5", art.Font,
+                new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-40f, -160f), new Vector2(300f, 70f),
+                TextAlignmentOptions.Right, 48f, BlockPalette.TextInk);
+
+            BuildBanner(canvasGO.transform, art, hud);
+            BuildPausePanel(canvasGO.transform, art, hud);
+            BuildGameOverPanel(canvasGO.transform, art, hud);
+
+            return hud;
         }
 
-        static void BuildPowerupBar(Transform canvasParent, ArtRegistry art, RevealGameManager gm)
+        /// <summary>
+        /// The level card. Built before the game-over panel so it sits behind it in the hierarchy
+        /// and cannot cover the retry buttons if a level ends while it is still on screen.
+        /// </summary>
+        static void BuildBanner(Transform parent, BlockArt art, BlockHud hud)
         {
-            var barGO = new GameObject("PowerupBar", typeof(RectTransform));
-            barGO.transform.SetParent(canvasParent, false);
-            var barRect = barGO.GetComponent<RectTransform>();
-            barRect.anchorMin = new Vector2(0.5f, 0f);
-            barRect.anchorMax = new Vector2(0.5f, 0f);
-            barRect.pivot = new Vector2(0.5f, 0f);
-            barRect.anchoredPosition = new Vector2(0f, 150f);
-            barRect.sizeDelta = new Vector2(500f, 110f);
+            var root = new GameObject("Banner", typeof(RectTransform), typeof(CanvasGroup), typeof(Image));
+            root.transform.SetParent(parent, false);
 
-            (string label, Sprite sprite) refill = ("Refill", art.RoundButtonColored[0]);
-            (string label, Sprite sprite) shuffle = ("Shuffle", art.RoundButtonColored[1]);
-            (string label, Sprite sprite) undo = ("Undo", art.RoundButtonColored[2]);
-            (string label, Sprite sprite) hint = ("Hint", art.RoundButtonColored[3]);
-            var defs = new[] { refill, shuffle, undo, hint };
+            var rect = root.GetComponent<RectTransform>();
+            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = new Vector2(0f, 340f);
+            rect.sizeDelta = new Vector2(720f, 200f);
 
-            var buttons = new Button[4];
-            for (int i = 0; i < defs.Length; i++)
+            var image = root.GetComponent<Image>();
+            var sprite = AssetDatabase.LoadAssetAtPath<Sprite>($"{ProjectPaths.MenuUI}/Panel.png");
+            if (sprite != null)
             {
-                float x = (i - 1.5f) * 118f;
-                var btnGO = CreateImage(barGO.transform, $"Powerup_{defs[i].label}", defs[i].sprite,
-                    new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(x, 20f), new Vector2(96f, 96f));
-                buttons[i] = btnGO.AddComponent<Button>();
-
-                AddLabel(barGO.transform, $"Powerup_{defs[i].label}_Label", defs[i].label,
-                    new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(x, -42f), new Vector2(110f, 30f),
-                    TextAlignmentOptions.Center, 18, new Color32(0x5A, 0x4A, 0x3C, 0xFF));
+                image.sprite = sprite;
+                image.type = sprite.border.sqrMagnitude > 0f ? Image.Type.Sliced : Image.Type.Simple;
+            }
+            else
+            {
+                image.color = BlockPalette.GridWell;
             }
 
-            var powerupBar = barGO.AddComponent<PowerupBar>();
-            powerupBar.GameManager = gm;
-            powerupBar.RefillButton = buttons[0];
-            powerupBar.ShuffleButton = buttons[1];
-            powerupBar.UndoButton = buttons[2];
-            powerupBar.HintButton = buttons[3];
+            image.raycastTarget = false;
+
+            var group = root.GetComponent<CanvasGroup>();
+            group.interactable = false;
+            group.blocksRaycasts = false;
+
+            hud.BannerRoot = root;
+            hud.BannerGroup = group;
+            hud.BannerText = Label(root.transform, "Text", "LEVEL 1", art.Font,
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 4f),
+                new Vector2(680f, 140f), TextAlignmentOptions.Center, 72f, BlockPalette.TextInk);
         }
 
-        static void BuildPetShop(Transform canvasParent, ArtRegistry art, CurrencyWallet wallet)
+        /// <summary>
+        /// Pause, reached from BACK. Built before the game-over panel so it can never cover it.
+        /// </summary>
+        static void BuildPausePanel(Transform parent, BlockArt art, BlockHud hud)
         {
-            var shopGO = new GameObject("PetShop", typeof(RectTransform));
-            shopGO.transform.SetParent(canvasParent, false);
-            var shopRect = shopGO.GetComponent<RectTransform>();
-            shopRect.anchorMin = new Vector2(0.5f, 0f);
-            shopRect.anchorMax = new Vector2(0.5f, 0f);
-            shopRect.pivot = new Vector2(0.5f, 0f);
-            shopRect.anchoredPosition = new Vector2(0f, 10f);
-            shopRect.sizeDelta = new Vector2(520f, 120f);
+            var panel = Overlay(parent, "PausePanel");
+            var card = Card(panel.transform, new Vector2(0f, 40f), new Vector2(800f, 640f));
 
-            var petIcons = new Image[6];
-            var costLabels = new TMP_Text[6];
-            var buttons = new Button[6];
-            var lockOverlays = new GameObject[6];
+            Label(card.transform, "Title", "PAUSED", art.Font,
+                new Vector2(0.5f, 0.5f), new Vector2(0f, 200f), new Vector2(700f, 130f),
+                TextAlignmentOptions.Center, 76f, BlockPalette.TextInk);
 
-            for (int i = 0; i < 6; i++)
+            hud.ResumeButton = Button(card.transform, "ResumeButton", "RESUME",
+                new Vector2(0.5f, 0.5f), new Vector2(0f, 20f), new Vector2(520f, 150f), art.Font, 50f,
+                "BtnGreen");
+
+            hud.QuitButton = Button(card.transform, "QuitButton", "QUIT",
+                new Vector2(0.5f, 0.5f), new Vector2(0f, -160f), new Vector2(520f, 140f), art.Font, 46f,
+                "BtnGrey");
+
+            hud.PausePanel = panel;
+        }
+
+        static GameObject Overlay(Transform parent, string name)
+        {
+            var panel = new GameObject(name, typeof(RectTransform), typeof(Image));
+            panel.transform.SetParent(parent, false);
+
+            var rect = panel.GetComponent<RectTransform>();
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+
+            panel.GetComponent<Image>().color = new Color(0.05f, 0.06f, 0.14f, 0.88f);
+            return panel;
+        }
+
+        /// <summary>The GUI-bundle panel the overlays hang their contents on.</summary>
+        static GameObject Card(Transform parent, Vector2 position, Vector2 size)
+        {
+            var card = new GameObject("Card", typeof(RectTransform), typeof(Image));
+            card.transform.SetParent(parent, false);
+
+            var rect = card.GetComponent<RectTransform>();
+            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = position;
+            rect.sizeDelta = size;
+
+            var image = card.GetComponent<Image>();
+            var sprite = AssetDatabase.LoadAssetAtPath<Sprite>($"{ProjectPaths.MenuUI}/Panel.png");
+            if (sprite != null)
             {
-                float x = (i - 2.5f) * 84f;
-
-                var slotGO = CreateImage(shopGO.transform, $"PetSlot_{i}", art.PanelSprite,
-                    new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(x, 40f), new Vector2(76f, 76f));
-                buttons[i] = slotGO.AddComponent<Button>();
-
-                var iconGO = CreateImage(slotGO.transform, "Icon", null,
-                    new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 6f), new Vector2(48f, 48f));
-                petIcons[i] = iconGO.GetComponent<Image>();
-
-                var lockGO = CreateImage(slotGO.transform, "LockOverlay", art.LockedIcon,
-                    new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(76f, 76f));
-                lockGO.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0.55f);
-                lockOverlays[i] = lockGO;
-
-                costLabels[i] = AddLabel(shopGO.transform, $"PetCost_{i}", "0",
-                    new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(x, -14f), new Vector2(80f, 30f),
-                    TextAlignmentOptions.Center, 18, new Color32(0x5A, 0x4A, 0x3C, 0xFF));
+                image.sprite = sprite;
+                image.type = sprite.border.sqrMagnitude > 0f ? Image.Type.Sliced : Image.Type.Simple;
+            }
+            else
+            {
+                image.color = BlockPalette.GridWell;
             }
 
-            var petShop = shopGO.AddComponent<PetShop>();
-            petShop.Wallet = wallet;
-            petShop.PetIcons = petIcons;
-            petShop.CostLabels = costLabels;
-            petShop.Buttons = buttons;
-            petShop.LockOverlays = lockOverlays;
+            return card;
         }
 
-        static GameObject CreateImage(Transform parent, string name, Sprite sprite,
-            Vector2 anchorMin, Vector2 anchorMax, Vector2 pivot, Vector2 anchoredPos, Vector2 sizeDelta)
+        static void BuildGameOverPanel(Transform parent, BlockArt art, BlockHud hud)
+        {
+            var panel = new GameObject("GameOverPanel", typeof(RectTransform), typeof(Image));
+            panel.transform.SetParent(parent, false);
+
+            var rect = panel.GetComponent<RectTransform>();
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+
+            panel.GetComponent<Image>().color = new Color(0.05f, 0.06f, 0.14f, 0.88f);
+
+            // Card behind the text, on the same panel sprite the menu's records board uses.
+            var card = new GameObject("Card", typeof(RectTransform), typeof(Image));
+            card.transform.SetParent(panel.transform, false);
+
+            var cardRect = card.GetComponent<RectTransform>();
+            cardRect.anchorMin = cardRect.anchorMax = new Vector2(0.5f, 0.5f);
+            cardRect.anchoredPosition = new Vector2(0f, 60f);
+            cardRect.sizeDelta = new Vector2(820f, 900f);
+
+            var cardImage = card.GetComponent<Image>();
+            var cardSprite = AssetDatabase.LoadAssetAtPath<Sprite>($"{ProjectPaths.MenuUI}/Panel.png");
+            if (cardSprite != null)
+            {
+                cardImage.sprite = cardSprite;
+                cardImage.type = cardSprite.border.sqrMagnitude > 0f
+                    ? Image.Type.Sliced : Image.Type.Simple;
+            }
+            else
+            {
+                cardImage.color = BlockPalette.GridWell;
+            }
+
+            Label(card.transform, "Title", "GAME OVER", art.Font,
+                new Vector2(0.5f, 0.5f), new Vector2(0f, 300f), new Vector2(760f, 140f),
+                TextAlignmentOptions.Center, 84f, BlockPalette.Get(1));
+
+            Label(card.transform, "ScoreCaption", "SCORE", art.Font,
+                new Vector2(0.5f, 0.5f), new Vector2(0f, 160f), new Vector2(600f, 70f),
+                TextAlignmentOptions.Center, 40f, BlockPalette.TextInk);
+
+            hud.GameOverScoreText = Label(card.transform, "FinalScore", "0", art.Font,
+                new Vector2(0.5f, 0.5f), new Vector2(0f, 60f), new Vector2(700f, 130f),
+                TextAlignmentOptions.Center, 96f, BlockPalette.TextAccent);
+
+            hud.RetryButton = Button(card.transform, "RetryButton", "RETRY",
+                new Vector2(0.5f, 0.5f), new Vector2(0f, -130f), new Vector2(520f, 150f), art.Font, 50f,
+                "BtnGreen");
+
+            hud.MenuButton = Button(card.transform, "MenuButton", "MENU",
+                new Vector2(0.5f, 0.5f), new Vector2(0f, -310f), new Vector2(520f, 140f), art.Font, 46f,
+                "BtnBlue");
+
+            hud.GameOverPanel = panel;
+        }
+
+        /// <summary>
+        /// A HUD button on the same GUI-bundle sprite the menu uses. Flat coloured rectangles
+        /// here next to a fully dressed menu made the two screens look like different games.
+        /// </summary>
+        static Button Button(Transform parent, string name, string text, Vector2 anchor,
+                            Vector2 position, Vector2 size, TMP_FontAsset font, float fontSize,
+                            string sprite = "BtnBlue")
         {
             var go = new GameObject(name, typeof(RectTransform), typeof(Image));
             go.transform.SetParent(parent, false);
+
             var rect = go.GetComponent<RectTransform>();
-            rect.anchorMin = anchorMin;
-            rect.anchorMax = anchorMax;
-            rect.pivot = pivot;
-            rect.anchoredPosition = anchoredPos;
-            rect.sizeDelta = sizeDelta;
-            var img = go.GetComponent<Image>();
-            img.sprite = sprite;
-            if (sprite != null) img.preserveAspect = true;
-            return go;
+            rect.anchorMin = anchor;
+            rect.anchorMax = anchor;
+            rect.pivot = anchor == new Vector2(0.5f, 0.5f) ? new Vector2(0.5f, 0.5f) : anchor;
+            rect.anchoredPosition = position;
+            rect.sizeDelta = size;
+
+            var image = go.GetComponent<Image>();
+            var face = AssetDatabase.LoadAssetAtPath<Sprite>($"{ProjectPaths.MenuUI}/{sprite}.png");
+            if (face != null)
+            {
+                image.sprite = face;
+                image.type = face.border.sqrMagnitude > 0f ? Image.Type.Sliced : Image.Type.Simple;
+            }
+            else
+            {
+                image.color = BlockPalette.SlotFrame;
+            }
+
+            var button = go.AddComponent<Button>();
+
+            var label = Label(go.transform, "Label", text, font,
+                new Vector2(0.5f, 0.5f), Vector2.zero, size,
+                TextAlignmentOptions.Center, fontSize, BlockPalette.TextInk);
+            label.outlineWidth = 0.22f;
+            label.outlineColor = new Color32(0x20, 0x20, 0x38, 0xFF);
+
+            // No onClick wiring here — BlockHud does it at runtime in Start(). Editor-time
+            // AddListener does not survive scene serialisation.
+            return button;
         }
 
-        static TMP_Text AddLabel(Transform parent, string name, string text,
-            Vector2 anchorMin, Vector2 anchorMax, Vector2 pivot, Vector2 anchoredPos, Vector2 sizeDelta,
-            TextAlignmentOptions alignment, int fontSize, Color color)
+        static TMP_Text Label(Transform parent, string name, string text, TMP_FontAsset font,
+                              Vector2 anchor, Vector2 position, Vector2 size,
+                              TextAlignmentOptions alignment, float fontSize, Color color)
+            => Label(parent, name, text, font, anchor, new Vector2(0.5f, 0.5f), position, size,
+                     alignment, fontSize, color);
+
+        static TMP_Text Label(Transform parent, string name, string text, TMP_FontAsset font,
+                              Vector2 anchor, Vector2 pivot, Vector2 position, Vector2 size,
+                              TextAlignmentOptions alignment, float fontSize, Color color)
         {
             var go = new GameObject(name, typeof(RectTransform), typeof(TextMeshProUGUI));
             go.transform.SetParent(parent, false);
+
             var rect = go.GetComponent<RectTransform>();
-            rect.anchorMin = anchorMin;
-            rect.anchorMax = anchorMax;
+            rect.anchorMin = anchor;
+            rect.anchorMax = anchor;
             rect.pivot = pivot;
-            rect.anchoredPosition = anchoredPos;
-            rect.sizeDelta = sizeDelta;
+            rect.anchoredPosition = position;
+            rect.sizeDelta = size;
 
             var tmp = go.GetComponent<TextMeshProUGUI>();
+            if (font != null) tmp.font = font;
             tmp.text = text;
             tmp.fontSize = fontSize;
             tmp.alignment = alignment;
             tmp.color = color;
+            tmp.enableWordWrapping = false;
+
             return tmp;
         }
     }

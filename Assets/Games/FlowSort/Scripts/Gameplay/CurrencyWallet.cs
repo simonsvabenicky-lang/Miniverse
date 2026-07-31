@@ -1,32 +1,31 @@
 using System;
+using FlowSort.Meta;
 using UnityEngine;
 
 namespace FlowSort.Gameplay
 {
+    /// <summary>
+    /// Scene-side view of the player's coins.
+    ///
+    /// It owns no storage of its own — PlayerProfile does, so the menu's coin counter and the
+    /// game's payouts are the same number rather than two that drift apart. This survives as a
+    /// component because the PocketVerse hub wrapper reads Manager.Wallet.Keys to report a score.
+    /// </summary>
     public class CurrencyWallet : MonoBehaviour
     {
-        const string PrefsKey = "flowsort_keys";
+        public int Keys => PlayerProfile.Coins;
 
-        public int Keys { get; private set; }
         public event Action<int> OnChanged;
-
-        void Awake()
-        {
-            Keys = PlayerPrefs.GetInt(PrefsKey, 0);
-        }
 
         public void Add(int amount)
         {
-            Keys += amount;
-            PlayerPrefs.SetInt(PrefsKey, Keys);
+            PlayerProfile.AddCoins(amount);
             OnChanged?.Invoke(Keys);
         }
 
         public bool TrySpend(int amount)
         {
-            if (Keys < amount) return false;
-            Keys -= amount;
-            PlayerPrefs.SetInt(PrefsKey, Keys);
+            if (!PlayerProfile.TrySpendCoins(amount)) return false;
             OnChanged?.Invoke(Keys);
             return true;
         }

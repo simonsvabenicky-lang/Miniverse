@@ -413,3 +413,71 @@ wiring — nothing in `Assets/Games/Frontline/` was touched this session. Not in
 further since it's out of scope for the hub work this pass was about; worth a dedicated
 look next time Frontline's own session picks up (same pattern as the Paused/Death-screen
 bug already flagged above with its own worktree).
+
+## FlowSort re-graduated: picture-reveal shooter is gone, now a block-breaker (2026-07-31)
+
+FlowSort's own session (`D:\FlowSort`, branch `blockwall-rebuild`) rebuilt the game from
+scratch — the picture-reveal shooter graduated on 2026-07-27 no longer exists.
+`RevealGameManager` and everything under the old `Scripts/Gameplay`/`Scripts/UI` are gone.
+The new game: a picture made of coloured blocks sits behind a race track; colour-matched
+towers ride the track and fire straight inward at blocks matching their own colour, then
+return to a landing square with leftover ammo — filling every landing square is the loss
+condition. Coordinated over a cross-session message exchange before porting (that source
+session explicitly asked for a decision before touching anything, per its own message).
+
+**The decision, agreed before porting started**: FlowSort now has two scenes — `Menu.unity`
+(its own front end: hearts with wall-clock regen, coins, three tabs/modes) and `Main.unity`
+(the game). Inside PocketVerse, only `Main` ships. The hub is already FlowSort's front end
+here (same reasoning as everywhere else in this doc) — a second full menu scene loaded
+underneath Home's own chrome would just be two front ends fighting for the same job.
+`Menu.unity` was never copied into this project.
+
+**What actually crossed over** (full replacement, not additive — old content deleted first):
+`Scripts/Blocks/*` (18 files, the whole game), `Scripts/Gameplay/CurrencyWallet.cs` (new
+version, different from the old picture-reveal one), `Scripts/Meta/*` (AppSettings, MainMenu,
+MusicBed, PlayerProfile, Sfx — `MainMenu.cs` is dead code here since `Menu.unity`/
+`MenuBuilder` never load it, left in per the source session's explicit "all of it"
+instruction rather than second-guessing), the hub wrapper (`HubIntegration/FlowSortMiniGame.cs`
+→ `Scripts/FlowSortMiniGame.cs`), six of `Assets/Editor`'s seven builder files (`SceneBuilder`,
+`AudioBuilder`, `BlockAtlasBuilder`, `ArtImporter`, `PictureAuthor`, `ModelInspect`, plus
+`ProjectPaths.cs` — every hardcoded path in the source project was already consolidated
+behind this one file by the source session specifically to make this port safe), and
+`Art/Kenney`, `Audio`, `Fonts`, `Pictures`, `Shaders`, `Materials`,
+`Settings/BlockVolumeProfile.asset`. **Not** ported: `BuildScript.cs` (would clobber
+PocketVerse's own product/company name, same reasoning as every other graduation's exclusion
+of standalone build scripts), `ProjectSetup.cs`, `BalanceSim.cs` (a headless design tool —
+`FlowSort/Simulate Balance`, thousands of simulated games under three play policies, useful
+for retuning but not needed at runtime), and `MenuBuilder.cs` — `SceneBuilder.Build()` only
+ever called one method on it (`MenuBuilder.RegisterScenes()`), so it didn't need to come over
+at all once that one call was removed (see below).
+
+**Three graduation-only edits, on top of the source session's own prep work**:
+1. `ProjectPaths.Root` changed from `"Assets"` to `"Assets/Games/FlowSort"` — the one-line
+   change the whole `ProjectPaths` refactor existed for.
+2. `ProjectPaths.MainScene` changed from `Main.unity` to `FlowSortMain.unity` — Frontline's
+   scene is already named `Main`, and `SceneManager.LoadScene(string)` resolves by scene
+   *name*, not path, so two same-named scenes in one project's Build Settings is ambiguous.
+   Same rename the picture-reveal build got in the first graduation; `FlowSortCatalogEntry.cs`
+   already expected `sceneName = "FlowSortMain"` from that pass, so it didn't need touching.
+3. `SceneBuilder.cs`: removed the `MenuBuilder.RegisterScenes()` call at the end of `Build()`
+   (would overwrite `EditorBuildSettings.scenes` with `[Menu, Main]`, which is both scenes
+   this project doesn't want and the exact "a scene builder sets Build Settings itself" bug
+   this codebase has already been bitten by twice — see the Frontline/first-FlowSort
+   graduation notes above; `BuildSceneSync` is the sole source of truth here), and added
+   `gameGO.AddComponent<FlowSortMiniGame>()` right after the `Game` GameObject is created,
+   same "attach hub wrapper to the same object as the game manager" pattern as every other
+   graduation.
+
+**Two things flagged back to the source session, both non-issues**: the hub gained its own
+`HubEconomy` (keys `hub_cash`/`hub_lives`) since the last FlowSort graduation, but it's
+decorative — nothing spends or grants it yet — and doesn't collide with FlowSort's own
+`fs_*` `PlayerPrefs` keys. And `AppSettings` setting `Application.targetFrameRate = 60` on
+load is exactly what Frontline's own `GameManager` already does with no observed conflict,
+since nothing in the hub sets or overrides it.
+
+Verified on-device end to end: card tap launches the new block-breaker (race track, block
+wall picture, conveyor towers with ammo counts all rendering correctly), `BACK` opens a
+Paused panel (not an immediate exit — this is real behaviour, not a bug, per the source
+session's own note), `QUIT` returns cleanly to Home instantly, and `analytics.jsonl` shows a
+clean `game_launch`/`game_end` pair for the session. Reported success back to the source
+session over the same cross-session channel.
