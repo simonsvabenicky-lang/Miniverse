@@ -15,6 +15,6 @@ MonoBehaviour:
   gameId: flowsort
   displayName: FlowSort
   sceneName: FlowSortMain
-  icon: {fileID: 0}
+  icon: {fileID: 21300000, guid: 7c1f0a4be9d24d1e8b3a5f60d2c47a91, type: 3}
   category: Puzzle
   enabled: 1
