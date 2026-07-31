@@ -39,12 +39,13 @@ namespace Miniverse.Hub
                         }
                     }
                     float a = hits / (float)(Super * Super);
-                    // Dark, not white: this sits on the light-grey square button background
-                    // (see HubCanvasBuilder.BuildShell's ProfileButton), same reasoning as the
-                    // gear/sound icons already on that button style -- a light icon on a light
-                    // button is nearly invisible, confirmed on-device (first pass used near-white
-                    // and the profile icon read as a faint blob).
-                    tex.SetPixel(x, y, new Color(0.22f, 0.24f, 0.32f, a));
+                    // Light, not dark: the Basic GUI Bundle icon-button backgrounds (see
+                    // HubCanvasBuilder.BuildShell's ProfileButton, BuildProfilePanel's avatar
+                    // circle) are medium-dark slate with a bold black outline -- the pack's own
+                    // icons all use a light fill on that same style of background. An earlier pass
+                    // used dark navy here for Kenney's light-grey buttons; that combination would
+                    // now read as a near-invisible dark-on-dark blob.
+                    tex.SetPixel(x, y, new Color(0.88f, 0.90f, 0.95f, a));
                 }
             }
             tex.Apply();

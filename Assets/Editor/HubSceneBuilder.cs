@@ -76,11 +76,12 @@ namespace Miniverse.EditorTools
             var so = new SerializedObject(homeController);
             so.FindProperty("_gridParent").objectReferenceValue = result.GridParent;
             so.FindProperty("_emptyStateLabel").objectReferenceValue = result.EmptyStateLabel;
-            so.FindProperty("_cardBackground").objectReferenceValue = result.CardBackground;
-            var badgeProp = so.FindProperty("_badgeSprites");
-            badgeProp.arraySize = result.BadgeSprites.Length;
-            for (int i = 0; i < result.BadgeSprites.Length; i++)
-                badgeProp.GetArrayElementAtIndex(i).objectReferenceValue = result.BadgeSprites[i];
+            so.FindProperty("_cardFrame").objectReferenceValue = result.CardFrame;
+            so.FindProperty("_titleFont").objectReferenceValue = result.TitleFont;
+            var accentProp = so.FindProperty("_accentColors");
+            accentProp.arraySize = result.AccentColors.Length;
+            for (int i = 0; i < result.AccentColors.Length; i++)
+                accentProp.GetArrayElementAtIndex(i).colorValue = result.AccentColors[i];
             so.ApplyModifiedPropertiesWithoutUndo();
 
             var shellController = bootstrapGO.GetComponent<HomeShellController>();

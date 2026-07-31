@@ -481,3 +481,64 @@ Paused panel (not an immediate exit — this is real behaviour, not a bug, per t
 session's own note), `QUIT` returns cleanly to Home instantly, and `analytics.jsonl` shows a
 clean `game_launch`/`game_end` pair for the session. Reported success back to the source
 session over the same cross-session channel.
+
+## Home's UI redone with Basic GUI Bundle, and a real 2-up grid (2026-07-31)
+
+Second pass at Home's UI, per two corrections from Simon: swap the Kenney-styled chrome for
+a specific pack he picked out (`D:\GameAssets\UI\Buttons-Panels\Basic_GUI_Bundle` — thick
+black outlines, gloss highlight, drop-shadow gradient), and fix the game grid, which he
+called out directly: "now its a massive rectangle and a small logo in the middle thats the
+opposite of wehat we want."
+
+**Grid redesign** (`HomeScreenController.cs`, rewritten): tiles are two per row, edge to edge
+within the grid's existing margins (`HubCanvasBuilder` computes a fixed cell size once at
+build time — 2 columns off the reference resolution's 90%-width grid area, not a runtime
+`RectTransform.rect` read, which isn't guaranteed settled the instant a script's `Start()`
+runs). Each tile is now dominated by the game's own art (`def.icon`, `preserveAspect`,
+filling nearly the whole card) instead of a small 84x84 badge floating in a mostly-empty
+panel; the name moved to a bold top strip with a colour-matched underline, styled with
+FlowSort's own Kenney Future SDF font (referenced in place from
+`Assets/Games/FlowSort/Fonts/` rather than copied — a TMP Font Asset's embedded material
+sub-asset can't safely be duplicated to a new path without either a GUID collision or
+re-running the whole Font Asset Creator pipeline; both projects live in this repo now, so
+the cross-game reference is a small, safe dependency, and TMP just falls back to the default
+font if it's ever missing rather than erroring). FlowSort's own hub tile icon and Frontline's
+new icon (see below) both show correctly since `HomeScreenController` already had the
+`def.icon != null` branch from the first pass — no further wiring needed once each game had
+one to point at.
+
+**Asset swap**: `Assets/_Hub/Art/UIBasic/` (imported via new `HubUIBasicImporter.cs`, same
+job as `HubUIImporter.cs` did for the Kenney set) now supplies every button, panel, pill, and
+icon in `HubCanvasBuilder.cs` — settings gear became Menu (hamburger, the closest analog;
+this pack has no cog/gear), lives/cash icons became real heart/coin sprites (dropping
+`ProceduralHeartIcon`'s use here, though the component itself is left in place), home/shop
+tab icons swapped too. Every text colour tuned for Kenney's light pastel fills got flipped to
+white — this pack's buttons are all medium-dark slate/blue/green/orange, the opposite
+contrast direction (`ProceduralAvatarIcon`'s fill colour flipped for the same reason, back to
+roughly where it was before the *first* Home UI pass tuned it dark for Kenney's light grey).
+
+**The real lesson from this pass — 9-slicing this pack doesn't behave like Kenney's did at
+every size**: first on-device round showed the lives/cash pills warped into a pointed almond
+shape and the top-bar icon buttons squashed into near-circles, despite border values
+computed the same proportional way that worked fine for Kenney (see `HubUIImporter`).
+Shrinking the border fractions made it *worse*, not better — pills turned into pointed darts,
+and even the card frame (which had looked fine) started showing the same corner-tearing
+artifact. Doubling back to larger borders and separately testing confirmed the actual
+pattern: `Image.Type.Sliced` on this pack's pill/stadium shapes (`ButtonText_*_Round`, used
+by both the small top-bar pills *and* the much larger Settings/Store/Profile `BACK` buttons)
+and on any sprite stretched far from its native aspect (`Box_WhiteOutline_Rounded` is a
+square 1524x1524 source, and the Settings sound row stretches it to roughly 5.8:1) doesn't
+hold up at all, regardless of size — only the game-tile card background, which stays close
+to its native aspect, actually looked right sliced. Fix: `CreatePillPanel`, `CreateIconButton`,
+and `CreateButton` all switched to `Image.Type.Simple` (`preserveAspect = false`, a plain
+stretch) instead of trying to find a border value that worked; `CreatePanel` (Settings/Store
+rows and cards) did too. Left `Image.Type.Sliced` alone only where it's demonstrably correct:
+the game-tile card background in `HomeScreenController.cs`, which renders close to the box
+sprite's own square-ish aspect. `HubUIBasicImporter.cs`'s border-fraction values ended up
+back near the *original* first-pass numbers — they were fine all along for the one thing
+still using them.
+
+Verified on-device across all four screens (Home, Settings, Store, Profile) after the fix —
+every button/pill/panel renders as a clean rounded shape with no distortion, both games'
+real hub tile art fills its card, titles read clearly in the new font with a matching
+underline accent.

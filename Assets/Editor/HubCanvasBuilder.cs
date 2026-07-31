@@ -23,48 +23,65 @@ namespace Miniverse.EditorTools
     public static class HubCanvasBuilder
     {
         const string UiRoot = "Assets/_Hub/Art/UI";
+        // Basic GUI Bundle (Assets/_Hub/Art/UIBasic) is now the primary source for every button/
+        // panel/icon in Home's UI, per Simon's "redo the UI with mainly this pack" ask -- the
+        // original Kenney set (UiRoot above) is only still loaded for ProceduralHeartIcon-style
+        // leftovers that don't have a pack equivalent. See HubUIBasicImporter for the import-side
+        // 9-slice border math.
+        const string UiBasicRoot = "Assets/_Hub/Art/UIBasic";
 
         public struct Result
         {
             public RectTransform GridParent;
             public TextMeshProUGUI EmptyStateLabel;
-            public Sprite CardBackground;
-            public Sprite[] BadgeSprites;
+            public Sprite CardFrame;
+            public Color[] AccentColors;
+            public TMP_FontAsset TitleFont;
             public Sprite SoundOnIcon;
             public Sprite SoundOffIcon;
         }
 
         public static Result Build(Transform canvasRoot)
         {
+            // FlowSort's own font, not a Home-specific copy: the same TMP SDF Font Asset (with
+            // its embedded material sub-asset) can't safely be duplicated to a new path -- the
+            // .meta would either collide on GUID with the original if copied, or need the whole
+            // Font Asset Creator pipeline re-run to regenerate a fresh atlas. Referencing FlowSort's
+            // in place is a small cross-game dependency, but a safe one: both live in this same
+            // repo now, and if it's ever missing TMP just falls back to the default font rather
+            // than erroring.
+            var titleFont = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>(
+                "Assets/Games/FlowSort/Fonts/KenneyFuture SDF.asset");
+
             BuildBackground(canvasRoot);
-            var (gridParent, emptyLabel) = BuildGameGridCanvas(canvasRoot);
-            BuildSettingsPanel(canvasRoot);
-            BuildStorePanel(canvasRoot);
-            BuildProfilePanel(canvasRoot);
+            var (gridParent, emptyLabel) = BuildGameGridCanvas(canvasRoot, titleFont);
+            BuildSettingsPanel(canvasRoot, titleFont);
+            BuildStorePanel(canvasRoot, titleFont);
+            BuildProfilePanel(canvasRoot, titleFont);
             BuildShell(canvasRoot);
 
             return new Result
             {
                 GridParent = gridParent,
                 EmptyStateLabel = emptyLabel,
-                // button_rectangle_depth_gradient, not the flat input_rectangle panel: it has a
-                // real baked-in gradient and drop-shadow band along the bottom (see Frontline's
-                // UIImporter border comment), which is most of what makes a game tile read as a
-                // raised card instead of a plain coloured rectangle -- input_rectangle alone
-                // looked flat on-device even with HomeScreenController's own Shadow layer behind it.
-                CardBackground = ColorSprite("Grey", "button_rectangle_depth_gradient"),
-                // Grey deliberately excluded: it's light enough that the badge's white letter
-                // read as nearly invisible against it on-device (confirmed first pass, Frontline's
-                // tile got the Grey badge and its "F" all but disappeared). Blue/Green/Yellow are
-                // all saturated enough for white text to read clearly on every one.
-                BadgeSprites = new[]
+                // The tile's own rounded frame/background, tinted per-game at runtime by
+                // HomeScreenController -- WhiteOutline despite the name is a mid-tone fill (see
+                // the pack's own naming: "White" describes the outline ring, not the fill), which
+                // takes a colour tint far better than the near-black Blank variant would.
+                CardFrame = BasicBox("WhiteOutline"),
+                // Three saturated accents from the pack's own button family, so a tile's colour
+                // always matches something else already on screen rather than being an arbitrary
+                // one-off. Grey/dark tones deliberately excluded -- white title text and the big
+                // fallback letter mark both need a properly saturated background to read against.
+                AccentColors = new Color[]
                 {
-                    ColorSprite("Blue", "button_round_depth_gloss"),
-                    ColorSprite("Green", "button_round_depth_gloss"),
-                    ColorSprite("Yellow", "button_round_depth_gloss"),
+                    new Color32(0x0B, 0x6F, 0xD4, 0xFF), // Blue
+                    new Color32(0x2E, 0xA0, 0x4A, 0xFF), // Green
+                    new Color32(0xE0, 0x7A, 0x1E, 0xFF), // Orange
                 },
-                SoundOnIcon = IconSprite("audioOn"),
-                SoundOffIcon = IconSprite("audioOff"),
+                TitleFont = titleFont,
+                SoundOnIcon = BasicIcon("Icon_Small_WhiteOutline_Audio"),
+                SoundOffIcon = BasicIcon("Icon_Small_WhiteOutline_AudioOff"),
             };
         }
 
@@ -79,7 +96,7 @@ namespace Miniverse.EditorTools
         }
 
         /// <summary>The default view: a small title/logo strip and the game grid. HomeScreenController fills the grid itself at runtime.</summary>
-        static (RectTransform gridParent, TextMeshProUGUI emptyLabel) BuildGameGridCanvas(Transform canvasRoot)
+        static (RectTransform gridParent, TextMeshProUGUI emptyLabel) BuildGameGridCanvas(Transform canvasRoot, TMP_FontAsset titleFont)
         {
             var root = NewRect("GameGridCanvas", canvasRoot);
             Stretch(root);
@@ -91,16 +108,30 @@ namespace Miniverse.EditorTools
             var title = AnchorRect(root, "Title", new Vector2(0f, 0.79f), new Vector2(1f, 0.875f));
             var titleTmp = title.gameObject.AddComponent<TextMeshProUGUI>();
             titleTmp.text = "PocketVerse";
+            titleTmp.font = titleFont;
             titleTmp.fontSize = 42;
             titleTmp.fontStyle = FontStyles.Bold;
             titleTmp.alignment = TextAlignmentOptions.Center;
             titleTmp.color = Color.white;
             titleTmp.raycastTarget = false;
 
+            // Two columns, edge to edge inside this 90%-width anchored area (margins are the 5%
+            // either side above, not extra padding here) -- per Simon's "two games per line
+            // stretching end to end (with margins)" correction to the old fixed-320 single-column-
+            // feeling grid. Reference resolution is fixed (540x960, see HubSceneBuilder), so this
+            // can be computed once here at build time rather than at runtime from a RectTransform
+            // whose rect isn't guaranteed settled the instant a script's Start() runs.
+            const float gridWidth = 540f * 0.90f; // AnchorRect's 0.05-0.95 span
+            const float spacing = 18f;
+            const float cellW = (gridWidth - spacing) / 2f;
+            const float cellH = cellW * 1.15f; // a little taller than wide -- see the reference screenshots
+
             var grid = AnchorRect(root, "GameGrid", new Vector2(0.05f, 0.13f), new Vector2(0.95f, 0.78f));
             var layout = grid.gameObject.AddComponent<GridLayoutGroup>();
-            layout.cellSize = new Vector2(320f, 320f);
-            layout.spacing = new Vector2(24f, 24f);
+            layout.cellSize = new Vector2(cellW, cellH);
+            layout.spacing = new Vector2(spacing, spacing);
+            layout.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
+            layout.constraintCount = 2;
             layout.childAlignment = TextAnchor.UpperCenter;
 
             var emptyLabel = AnchorRect(root, "EmptyStateLabel", new Vector2(0.1f, 0.4f), new Vector2(0.9f, 0.6f));
@@ -114,12 +145,12 @@ namespace Miniverse.EditorTools
         }
 
         /// <summary>Sound toggle + Back -- the only real setting so far (matches Frontline's own "MUSIC (none yet)" honesty about what's actually wired up).</summary>
-        static void BuildSettingsPanel(Transform canvasRoot)
+        static void BuildSettingsPanel(Transform canvasRoot, TMP_FontAsset titleFont)
         {
             var root = NewRect("SettingsPanel", canvasRoot);
             Stretch(root);
             BuildDim(root);
-            AddTitle(root, "SETTINGS", 173f, 44);
+            AddTitle(root, "SETTINGS", 173f, 44, titleFont);
 
             var soundRow = CreatePanel(root, "SoundPanel", 0f, 340f, 420f, 72f);
             AddRowLabel(soundRow, "SOUND", 24, 0.7f);
@@ -133,18 +164,18 @@ namespace Miniverse.EditorTools
             noteTmp.color = new Color(0.2f, 0.2f, 0.22f, 0.5f);
             noteTmp.raycastTarget = false;
 
-            CreateButton(root, "BackButton", "BACK", ButtonSprite("Grey"), 0f, 460f, 300f, 76f, 26);
+            CreateButton(root, "BackButton", "BACK", BasicButton("Large", "GreyOutline"), 0f, 460f, 300f, 76f, 26);
             // Left active -- see BuildProfilePanel's comment on why HomeShellController hides
             // this at runtime instead.
         }
 
         /// <summary>Honest placeholder, not a fake shop -- nothing sells anything yet. Matches Frontline's own "COMING SOON" convention rather than pretending a store exists.</summary>
-        static void BuildStorePanel(Transform canvasRoot)
+        static void BuildStorePanel(Transform canvasRoot, TMP_FontAsset titleFont)
         {
             var root = NewRect("StorePanel", canvasRoot);
             Stretch(root);
             BuildDim(root);
-            AddTitle(root, "STORE", 173f, 44);
+            AddTitle(root, "STORE", 173f, 44, titleFont);
 
             var card = CreatePanel(root, "ComingSoonCard", 0f, 420f, 420f, 200f);
             var labelRect = AnchorRect(card, "Label", new Vector2(0.05f, 0.1f), new Vector2(0.95f, 0.9f));
@@ -153,24 +184,27 @@ namespace Miniverse.EditorTools
             labelTmp.fontSize = 24;
             labelTmp.fontStyle = FontStyles.Bold;
             labelTmp.alignment = TextAlignmentOptions.Center;
-            labelTmp.color = new Color(0.15f, 0.15f, 0.18f, 0.8f);
+            labelTmp.color = new Color(1f, 1f, 1f, 0.85f);
             labelTmp.raycastTarget = false;
 
-            CreateButton(root, "BackButton", "BACK", ButtonSprite("Grey"), 0f, 680f, 300f, 76f, 26);
+            CreateButton(root, "BackButton", "BACK", BasicButton("Large", "GreyOutline"), 0f, 680f, 300f, 76f, 26);
             // Left active -- see BuildProfilePanel's comment on why.
         }
 
         /// <summary>Avatar + one real stat (games played, from HubStats) -- not a fake profile with invented numbers.</summary>
-        static void BuildProfilePanel(Transform canvasRoot)
+        static void BuildProfilePanel(Transform canvasRoot, TMP_FontAsset titleFont)
         {
             var root = NewRect("ProfilePanel", canvasRoot);
             Stretch(root);
             BuildDim(root);
-            AddTitle(root, "PROFILE", 173f, 44);
+            AddTitle(root, "PROFILE", 173f, 44, titleFont);
 
             var avatarRt = PlaceTopCenter(NewRect("Avatar", root), 0f, 300f, 140f, 140f);
             var avatarImg = avatarRt.gameObject.AddComponent<Image>();
-            avatarImg.sprite = ColorSprite("Grey", "button_round_depth_gloss");
+            // Type.Simple, not Sliced: this circle is always drawn at a fixed 140x140, never
+            // stretched, so there's no 9-slice border math to get right for a true circle (which
+            // a rectangular border can't represent correctly anyway).
+            avatarImg.sprite = AssetDatabase.LoadAssetAtPath<Sprite>($"{UiBasicRoot}/IconButtons/IconButton_Large_GreyOutline_Circle.png");
             avatarImg.raycastTarget = false;
             var avatarIconRt = AnchorRect(avatarRt, "Icon", new Vector2(0.2f, 0.2f), new Vector2(0.8f, 0.8f));
             avatarIconRt.gameObject.AddComponent<Image>().raycastTarget = false;
@@ -195,7 +229,7 @@ namespace Miniverse.EditorTools
             statsTmp.color = new Color(1f, 1f, 1f, 0.75f);
             statsTmp.raycastTarget = false;
 
-            CreateButton(root, "BackButton", "BACK", ButtonSprite("Grey"), 0f, 620f, 300f, 76f, 26);
+            CreateButton(root, "BackButton", "BACK", BasicButton("Large", "GreyOutline"), 0f, 620f, 300f, 76f, 26);
             // Deliberately left active here (not SetActive(false)): GameObject.Find can't locate
             // an inactive object at all, even mid-path, and HomeShellController.Awake() finds
             // every panel by name via GameObject.Find($"Canvas/{name}") before it has any other
@@ -236,26 +270,34 @@ namespace Miniverse.EditorTools
             profileIconRt.gameObject.AddComponent<Image>().raycastTarget = false;
             profileIconRt.gameObject.AddComponent<ProceduralAvatarIcon>();
 
-            CreateIconButton(topBar, "SettingsGearButton", IconSprite("gear"), 0.20f, 0.5f, 44f);
-            CreateIconButton(topBar, "SoundToggleButton", IconSprite("audioOn"), 0.32f, 0.5f, 44f);
+            // No gear/cog exists in Basic GUI Bundle -- Menu (hamburger) is the closest analog and
+            // reads fine as "settings" at this size with the pack's own bold black outline.
+            CreateIconButton(topBar, "SettingsGearButton", BasicIcon("Icon_Large_Menu_Grey"), 0.20f, 0.5f, 44f);
+            CreateIconButton(topBar, "SoundToggleButton", BasicIcon("Icon_Small_WhiteOutline_Audio"), 0.32f, 0.5f, 44f);
 
             var livesPill = CreatePillPanel(topBar, "LivesPill", 0.58f, 0.5f, 130f, 52f);
             var heartIconRt = AnchorPoint(livesPill, "HeartIcon", 0.20f, 0.5f, 28f, 28f);
-            heartIconRt.gameObject.AddComponent<Image>().raycastTarget = false;
-            heartIconRt.gameObject.AddComponent<ProceduralHeartIcon>();
+            var heartImg = heartIconRt.gameObject.AddComponent<Image>();
+            // A real heart sprite from the pack now, not the hand-drawn ProceduralHeartIcon --
+            // simpler and matches every other icon's style.
+            heartImg.sprite = BasicIcon("Icon_Small_HeartFull");
+            heartImg.raycastTarget = false;
             var livesTmp = AnchorRect(livesPill, "Value", new Vector2(0.36f, 0f), new Vector2(0.95f, 1f))
                 .gameObject.AddComponent<TextMeshProUGUI>();
             livesTmp.text = "0";
             livesTmp.fontSize = 20;
             livesTmp.fontStyle = FontStyles.Bold;
             livesTmp.alignment = TextAlignmentOptions.Left;
-            livesTmp.color = new Color(0.15f, 0.15f, 0.18f);
+            // White, not dark: the new pill sprite (ButtonText_Small_GreyOutline_Round) has a
+            // medium-dark slate fill, opposite of the old light input_rectangle background this
+            // text color was tuned for.
+            livesTmp.color = Color.white;
             livesTmp.raycastTarget = false;
 
             var cashPill = CreatePillPanel(topBar, "CashPill", 0.85f, 0.5f, 120f, 52f);
             var coinIconRt = AnchorPoint(cashPill, "CoinIcon", 0.22f, 0.5f, 28f, 28f);
             var coinImg = coinIconRt.gameObject.AddComponent<Image>();
-            coinImg.sprite = IconSprite("coin");
+            coinImg.sprite = BasicIcon("Icon_Small_Coin");
             coinImg.raycastTarget = false;
             var cashTmp = AnchorRect(cashPill, "Value", new Vector2(0.4f, 0f), new Vector2(0.95f, 1f))
                 .gameObject.AddComponent<TextMeshProUGUI>();
@@ -263,7 +305,7 @@ namespace Miniverse.EditorTools
             cashTmp.fontSize = 20;
             cashTmp.fontStyle = FontStyles.Bold;
             cashTmp.alignment = TextAlignmentOptions.Left;
-            cashTmp.color = new Color(0.15f, 0.15f, 0.18f);
+            cashTmp.color = Color.white;
             cashTmp.raycastTarget = false;
 
             const float tabBarH = 118f;
@@ -272,8 +314,8 @@ namespace Miniverse.EditorTools
             var tabBarImg = tabBar.gameObject.AddComponent<Image>();
             tabBarImg.color = new Color(0f, 0f, 0f, 0.35f);
 
-            CreateTabButton(tabBar, "HomeTab", IconSprite("home"), "HOME", 0, 2);
-            CreateTabButton(tabBar, "StoreTab", IconSprite("shoppingCart"), "STORE", 1, 2);
+            CreateTabButton(tabBar, "HomeTab", BasicIcon("Icon_Small_WhiteOutline_Home"), "HOME", 0, 2);
+            CreateTabButton(tabBar, "StoreTab", BasicIcon("Icon_Small_WhiteOutline_Shop"), "STORE", 1, 2);
         }
 
         // ---- helpers (ported from Frontline's CanvasBuilder -- same visual language, same art root convention, repointed at Assets/_Hub/Art/UI) ----
@@ -284,8 +326,18 @@ namespace Miniverse.EditorTools
             AssetDatabase.LoadAssetAtPath<Sprite>($"{UiRoot}/Extra/{file}.png");
         static Sprite IconSprite(string file) =>
             AssetDatabase.LoadAssetAtPath<Sprite>($"{UiRoot}/Icons/{file}.png");
-        static Sprite ButtonSprite(string color) => ColorSprite(color, "button_rectangle_depth_gloss");
-        static Sprite SquareButtonSprite(string color) => ColorSprite(color, "button_square_depth_gloss");
+
+        /// <summary>Pill-shaped text button, e.g. "Large"/"Blue" -> ButtonText_Large_Blue_Round.</summary>
+        static Sprite BasicButton(string size, string color) =>
+            AssetDatabase.LoadAssetAtPath<Sprite>($"{UiBasicRoot}/Buttons/ButtonText_{size}_{color}_Round.png");
+        /// <summary>Square-ish icon-button background, e.g. "Large"/"GreyOutline" -> IconButton_Large_GreyOutline_Rounded.</summary>
+        static Sprite BasicIconButton(string size, string style) =>
+            AssetDatabase.LoadAssetAtPath<Sprite>($"{UiBasicRoot}/IconButtons/IconButton_{size}_{style}_Rounded.png");
+        /// <summary>Rounded panel background, e.g. "WhiteOutline" -> Box_WhiteOutline_Rounded.</summary>
+        static Sprite BasicBox(string style) =>
+            AssetDatabase.LoadAssetAtPath<Sprite>($"{UiBasicRoot}/Boxes/Box_{style}_Rounded.png");
+        static Sprite BasicIcon(string file) =>
+            AssetDatabase.LoadAssetAtPath<Sprite>($"{UiBasicRoot}/Icons/{file}.png");
 
         static RectTransform NewRect(string name, Transform parent)
         {
@@ -351,12 +403,13 @@ namespace Miniverse.EditorTools
             return rt;
         }
 
-        static TextMeshProUGUI AddTitle(Transform parent, string text, float yFromTop, int fontSize)
+        static TextMeshProUGUI AddTitle(Transform parent, string text, float yFromTop, int fontSize, TMP_FontAsset font = null)
         {
             var rt = NewRect("Title", parent);
             PlaceTopCenter(rt, 0f, yFromTop, 500f, 80f);
             var tmp = rt.gameObject.AddComponent<TextMeshProUGUI>();
             tmp.text = text;
+            tmp.font = font;
             tmp.fontSize = fontSize;
             tmp.alignment = TextAlignmentOptions.Center;
             tmp.fontStyle = FontStyles.Bold;
@@ -372,7 +425,9 @@ namespace Miniverse.EditorTools
             tmp.text = text;
             tmp.fontSize = fontSize;
             tmp.alignment = TextAlignmentOptions.Left;
-            tmp.color = new Color(0.15f, 0.15f, 0.18f);
+            // White: CreatePanel's rows now sit on Box_WhiteOutline_Rounded, which despite its
+            // name has a dark slate fill (the "White" refers to the outline ring, not the fill).
+            tmp.color = Color.white;
             tmp.raycastTarget = false;
         }
 
@@ -381,8 +436,15 @@ namespace Miniverse.EditorTools
             var rt = NewRect(name, parent);
             PlaceTopCenter(rt, x, yFromTop, w, h);
             var img = rt.gameObject.AddComponent<Image>();
-            img.sprite = ExtraSprite("input_rectangle");
-            img.type = Image.Type.Sliced;
+            img.sprite = BasicBox("WhiteOutline");
+            // Type.Simple, not Sliced: this box is a square source (1524x1524) and CreatePanel's
+            // two callers (the Settings sound row, Store's "coming soon" card) both stretch it far
+            // from square -- the sound row especially, at ~5.8:1. 9-slicing that showed the same
+            // corner-tearing artifact as the pills. The one place Box_WhiteOutline_Rounded still
+            // uses Sliced is the game-tile card background in HomeScreenController, which renders
+            // close to its native square-ish aspect and looks correct there.
+            img.type = Image.Type.Simple;
+            img.preserveAspect = false;
             return rt;
         }
 
@@ -390,8 +452,15 @@ namespace Miniverse.EditorTools
         {
             var rt = AnchorPoint(parent, name, ax, ay, w, h);
             var img = rt.gameObject.AddComponent<Image>();
-            img.sprite = ExtraSprite("input_rectangle");
-            img.type = Image.Type.Sliced;
+            // A real stadium/pill shape now (ButtonText_Small_GreyOutline_Round), not a plain
+            // rounded-rect box -- reads as a counter chip rather than a mini card.
+            // Type.Simple, not Sliced: at this pill's small render size (~52 units tall against a
+            // ~250px-tall source), 9-slicing broke down at every border value tried -- see
+            // HubUIBasicImporter's comment. The pill's own aspect (2.14:1) is close enough to this
+            // panel's (w:h up to 2.5:1) that a plain uniform stretch doesn't read as distorted.
+            img.sprite = BasicButton("Small", "GreyOutline");
+            img.type = Image.Type.Simple;
+            img.preserveAspect = false;
             return rt;
         }
 
@@ -403,7 +472,12 @@ namespace Miniverse.EditorTools
 
             var img = rt.gameObject.AddComponent<Image>();
             img.sprite = sprite;
-            img.type = Image.Type.Sliced;
+            // Type.Simple, not Sliced: this is only ever used for BasicButton's stadium/pill
+            // sprites (the BACK buttons), and 9-slicing a true semicircular-cap pill broke down
+            // the same way CreatePillPanel's did -- a pointed almond shape, at this size too, not
+            // just the smaller top-bar pills. Same fix, same reasoning.
+            img.type = Image.Type.Simple;
+            img.preserveAspect = false;
 
             var button = rt.gameObject.AddComponent<Button>();
             button.targetGraphic = img;
@@ -420,7 +494,9 @@ namespace Miniverse.EditorTools
             tmp.fontSize = fontSize;
             tmp.alignment = TextAlignmentOptions.Center;
             tmp.fontStyle = FontStyles.Bold;
-            tmp.color = new Color32(40, 40, 45, 255);
+            // White, not dark: every BasicButton fill in this pack is medium-dark slate/blue/
+            // green/orange, opposite of Kenney's light pastel buttons this color was tuned for.
+            tmp.color = Color.white;
             tmp.raycastTarget = false;
 
             return button;
@@ -431,8 +507,13 @@ namespace Miniverse.EditorTools
         {
             var rt = AnchorPoint(parent, name, ax, ay, size, size);
             var img = rt.gameObject.AddComponent<Image>();
-            img.sprite = SquareButtonSprite("Grey");
-            img.type = Image.Type.Sliced;
+            img.sprite = BasicIconButton("Large", "GreyOutline");
+            // Type.Simple, not Sliced: same reasoning as CreatePillPanel -- 9-slicing this at a
+            // 44-unit render size broke down. This sprite is a true square (371x371 source), and
+            // these buttons are always square too, so a plain stretch is a perfect 1:1 match with
+            // zero distortion, not just "close enough".
+            img.type = Image.Type.Simple;
+            img.preserveAspect = false;
             var button = rt.gameObject.AddComponent<Button>();
             button.targetGraphic = img;
             var colors = button.colors;
