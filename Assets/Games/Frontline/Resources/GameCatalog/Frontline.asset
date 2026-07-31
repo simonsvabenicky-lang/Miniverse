@@ -15,6 +15,6 @@ MonoBehaviour:
   gameId: frontline
   displayName: Frontline
   sceneName: Main
-  icon: {fileID: 0}
+  icon: {fileID: 21300000, guid: cee980dfda9f4914eb78247c84493cf6, type: 3}
   category: Action
   enabled: 1

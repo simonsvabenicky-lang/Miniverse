@@ -21,6 +21,8 @@ namespace Frontline.EditorTools
         [MenuItem("Frontline/Create Miniverse Catalog Entry")]
         public static void Create()
         {
+            AssetDatabase.Refresh();
+
             if (!AssetDatabase.IsValidFolder(Dir))
             {
                 AssetDatabase.CreateFolder("Assets/Games/Frontline", "Resources");
@@ -35,8 +37,16 @@ namespace Frontline.EditorTools
             def.sceneName = "Main";
             def.category = "Action";
             def.enabled = true;
-            // No icon yet -- nothing Frontline-specific to point at (see FrontlineCatalogEntry's
-            // doc comment); HomeScreenController's empty-state tile handles a null icon today.
+
+            const string IconPath = Dir + "/frontline_icon.png";
+            var iconImporter = (TextureImporter)AssetImporter.GetAtPath(IconPath);
+            if (iconImporter != null && iconImporter.textureType != TextureImporterType.Sprite)
+            {
+                iconImporter.textureType = TextureImporterType.Sprite;
+                iconImporter.spriteImportMode = SpriteImportMode.Single;
+                iconImporter.SaveAndReimport();
+            }
+            def.icon = AssetDatabase.LoadAssetAtPath<Sprite>(IconPath);
 
             if (existing == null) AssetDatabase.CreateAsset(def, Path);
             else EditorUtility.SetDirty(def);
