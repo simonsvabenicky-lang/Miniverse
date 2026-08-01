@@ -95,7 +95,11 @@ namespace Miniverse.Hub
             var artRect = Anchor(cardRect, "Art", new Vector2(margin, margin), new Vector2(1f - margin, 1f - margin));
             var img = artRect.gameObject.AddComponent<Image>();
             img.sprite = def.icon;
-            img.preserveAspect = true;
+            // Stretch to fill the inset rect exactly -- preserveAspect would letterbox/
+            // pillarbox and leave a gap of bare accent colour between the art and the frame
+            // whenever the icon's aspect doesn't match the tile's. Simon's icons are being
+            // authored to the tile's own aspect, so a uniform stretch is the correct fit.
+            img.preserveAspect = false;
             img.raycastTarget = false;
         }
 
