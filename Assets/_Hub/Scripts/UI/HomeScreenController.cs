@@ -9,14 +9,13 @@ namespace Miniverse.Hub
     /// code rather than instantiated from a prefab asset, matching Frontline's
     /// generate-don't-hand-author convention — one less asset type to keep in sync by hand.
     ///
-    /// Second pass at the card design, per Simon's own correction: "now its a massive rectangle
-    /// and a small logo in the middle thats the opposite of wehat we want". The game's own
-    /// icon/art now fills almost the entire tile (not a small 84x84 badge floating in a mostly
-    /// empty card), with the name integrated as a strip across the top instead of a caption
-    /// below. No per-game icon exists for every game yet (MiniGameDef.icon is unset on some
-    /// graduated games), so those still fall back to a big bold letter mark rather than a fake
-    /// icon — honest about what's real, same as Frontline's "(none yet)" settings rows. Swap in
-    /// def.icon automatically the moment a game ships one.
+    /// Third pass at the card design: Simon is now hand-authoring each game's icon art with
+    /// the name already baked into the image (key-art style, see Frontline's icon), so this
+    /// no longer draws any text of its own — no name strip, no letter-mark fallback. The
+    /// accent-coloured frame (_cardFrame, still green/blue/orange per game) stays as the
+    /// background box; the icon art sits inset within it so the frame reads as a lining
+    /// border all the way around, same as a photo in a mat. A game with no icon yet just
+    /// shows the bare accent box — honest about what's real, no synthesized substitute.
     /// </summary>
     public class HomeScreenController : MonoBehaviour
     {
@@ -24,7 +23,6 @@ namespace Miniverse.Hub
         [SerializeField] TextMeshProUGUI _emptyStateLabel;
         [SerializeField] Sprite _cardFrame;
         [SerializeField] Color[] _accentColors;
-        [SerializeField] TMP_FontAsset _titleFont;
 
         void Start()
         {
@@ -85,56 +83,20 @@ namespace Miniverse.Hub
             button.colors = colors;
             button.onClick.AddListener(() => HubLauncher.Instance.LaunchGame(def));
 
-            BuildNameStrip(cardRect, def);
             BuildArt(cardRect, def);
         }
 
-        /// <summary>Top strip: the game's name, bold, with a short underline accent -- same visual language as a real store listing's title, not a caption squeezed under a badge.</summary>
-        void BuildNameStrip(Transform cardRect, MiniGameDef def)
-        {
-            var nameRect = Anchor(cardRect, "Name", new Vector2(0.07f, 0.80f), new Vector2(0.93f, 0.95f));
-            var nameTmp = nameRect.gameObject.AddComponent<TextMeshProUGUI>();
-            nameTmp.text = def.displayName;
-            nameTmp.font = _titleFont;
-            nameTmp.fontSize = 26;
-            nameTmp.fontStyle = FontStyles.Bold;
-            nameTmp.alignment = TextAlignmentOptions.BottomLeft;
-            nameTmp.enableAutoSizing = true;
-            nameTmp.fontSizeMin = 14;
-            nameTmp.fontSizeMax = 26;
-            nameTmp.color = Color.white;
-            nameTmp.raycastTarget = false;
-
-            var underline = Anchor(cardRect, "Underline", new Vector2(0.07f, 0.76f), new Vector2(0.42f, 0.785f));
-            underline.gameObject.AddComponent<Image>().color = Color.white;
-            underline.GetComponent<Image>().raycastTarget = false;
-        }
-
-        /// <summary>The whole rest of the card, edge to edge -- def.icon if the game has shipped one, otherwise a big fallback letter mark. Either way this is the dominant thing on the tile, not a small centred badge.</summary>
+        /// <summary>The game's icon art, inset within the accent-coloured frame so the frame shows as a lining border all the way around. No text drawn here -- the icon art itself already carries the game's name.</summary>
         void BuildArt(Transform cardRect, MiniGameDef def)
         {
-            var artRect = Anchor(cardRect, "Art", new Vector2(0.05f, 0.05f), new Vector2(0.95f, 0.72f));
+            if (def.icon == null) return;
 
-            if (def.icon != null)
-            {
-                var img = artRect.gameObject.AddComponent<Image>();
-                img.sprite = def.icon;
-                img.preserveAspect = true;
-                img.raycastTarget = false;
-                return;
-            }
-
-            var letterTmp = artRect.gameObject.AddComponent<TextMeshProUGUI>();
-            letterTmp.text = string.IsNullOrEmpty(def.displayName) ? "?" : def.displayName.Substring(0, 1).ToUpperInvariant();
-            letterTmp.font = _titleFont;
-            letterTmp.fontSize = 160;
-            letterTmp.enableAutoSizing = true;
-            letterTmp.fontSizeMin = 40;
-            letterTmp.fontSizeMax = 220;
-            letterTmp.fontStyle = FontStyles.Bold;
-            letterTmp.alignment = TextAlignmentOptions.Center;
-            letterTmp.color = new Color(1f, 1f, 1f, 0.92f);
-            letterTmp.raycastTarget = false;
+            const float margin = 0.10f;
+            var artRect = Anchor(cardRect, "Art", new Vector2(margin, margin), new Vector2(1f - margin, 1f - margin));
+            var img = artRect.gameObject.AddComponent<Image>();
+            img.sprite = def.icon;
+            img.preserveAspect = true;
+            img.raycastTarget = false;
         }
 
         Color PickAccent(MiniGameDef def)

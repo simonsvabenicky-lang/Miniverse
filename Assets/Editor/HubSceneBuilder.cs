@@ -77,7 +77,6 @@ namespace Miniverse.EditorTools
             so.FindProperty("_gridParent").objectReferenceValue = result.GridParent;
             so.FindProperty("_emptyStateLabel").objectReferenceValue = result.EmptyStateLabel;
             so.FindProperty("_cardFrame").objectReferenceValue = result.CardFrame;
-            so.FindProperty("_titleFont").objectReferenceValue = result.TitleFont;
             var accentProp = so.FindProperty("_accentColors");
             accentProp.arraySize = result.AccentColors.Length;
             for (int i = 0; i < result.AccentColors.Length; i++)
