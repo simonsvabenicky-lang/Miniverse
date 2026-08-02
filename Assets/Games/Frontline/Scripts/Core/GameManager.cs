@@ -73,6 +73,10 @@ namespace Frontline
         TextMeshProUGUI _deathScoreText;
         TextMeshProUGUI _deathStageText;
         TextMeshProUGUI _deathSupplyText;
+        TextMeshProUGUI _hudScoreText;
+        TextMeshProUGUI _hudLivesText;
+        TextMeshProUGUI _hudStageText;
+        TextMeshProUGUI _hudWeaponText;
         int _deathSupplyEarned;
 
         ObjectPool<Enemy> _enemyPool;
@@ -143,6 +147,7 @@ namespace Frontline
                 _flashPool = new ObjectPool<Flash>(_flashPrefab, bin, warm: 32);
 
             WireDeathScreen();
+            WireHud();
         }
 
         /// <summary>
@@ -169,6 +174,53 @@ namespace Frontline
             UIWire.Click(canvas, "RestartButton", () => { if (GameUI.Instance != null) GameUI.Instance.RestartRun(); });
             UIWire.Click(canvas, "MenuButton", () => { if (GameUI.Instance != null) GameUI.Instance.Go(Screen_.Menu); });
             _deathCanvas.SetActive(false);
+        }
+
+        /// <summary>
+        /// The top-left run readout (score/lives/stage/weapon) -- a real card now
+        /// (CanvasBuilder.BuildGameplayHud) instead of default-skin IMGUI text, to match the
+        /// rest of the UI. GameUI owns showing/hiding the card (RefreshCanvasVisibility); this
+        /// just finds the four rows once and keeps them filled in, same split of responsibility
+        /// WireDeathScreen already uses.
+        /// </summary>
+        void WireHud()
+        {
+            // Not GameObject.Find("Canvas/GameplayHud/StatsPanel") -- GameUI's Awake can run
+            // before this one and already hidden GameplayHud (default Screen_ is Menu, and the
+            // HUD only shows for Playing/Paused), and GameObject.Find skips inactive objects.
+            // "Canvas" itself is always active, so find that first and Transform.Find the rest
+            // -- Transform.Find has no such restriction.
+            GameObject canvas = GameObject.Find("Canvas");
+            Transform panel = canvas != null ? canvas.transform.Find("GameplayHud/StatsPanel") : null;
+            if (panel == null)
+            {
+                Debug.LogWarning("[Frontline] GameplayHud/StatsPanel not found -- was CanvasBuilder run?");
+                return;
+            }
+            _hudScoreText = panel.Find("ScoreText")?.GetComponent<TextMeshProUGUI>();
+            _hudLivesText = panel.Find("LivesText")?.GetComponent<TextMeshProUGUI>();
+            _hudStageText = panel.Find("StageText")?.GetComponent<TextMeshProUGUI>();
+            _hudWeaponText = panel.Find("WeaponText")?.GetComponent<TextMeshProUGUI>();
+        }
+
+        void UpdateHud()
+        {
+            if (_hudScoreText != null) _hudScoreText.text = $"SCORE {Score}";
+            if (_hudLivesText != null) _hudLivesText.text = $"LIVES {Health}";
+            if (_hudStageText != null) _hudStageText.text = $"STAGE {Stage}";
+            if (_hudWeaponText == null) return;
+            if (PlayerWeapon.Instance != null && PlayerWeapon.Instance.Current != null)
+            {
+                // The %DMG stays on screen permanently, not just in the level-up flash --
+                // "are you sure a level 1 ak and level 2 ak have different stats?" is answered
+                // better by a number you can check any time than by a flash you might miss.
+                int pct = Mathf.RoundToInt((DamageMult - 1f) * 100f);
+                _hudWeaponText.text = $"WEAPON {PlayerWeapon.Instance.Current.DisplayName}  Lv{Level} (+{pct}% DMG)";
+            }
+            else
+            {
+                _hudWeaponText.text = "";
+            }
         }
 
         /// <summary>Makes an inactive, collider-free primitive to serve as a pool prefab.</summary>
@@ -683,9 +735,13 @@ namespace Frontline
         static int Scaled(float v) => Mathf.RoundToInt(v * UiScale);
 
         // ---- Grey-box HUD ----
-        // IMGUI on purpose: uGUI/TextMeshPro would drag in package imports and an
-        // "essential resources" dialog for what is throwaway debug text. Replaced by a
-        // real canvas once the loop is proven.
+        // The persistent score/lives/stage/weapon readout moved to a real canvas
+        // (CanvasBuilder.BuildGameplayHud, filled in by UpdateHud) once the rest of the UI got
+        // styled -- plain IMGUI text next to the shop's/menu's real cards looked unfinished.
+        // Everything else here stays IMGUI on purpose: world-space labels that track a
+        // moving Transform (gate/hurdle callouts, floating pickup numbers) and one-off flashes
+        // are cheaper to draw straight from Update() than to shuffle through pooled uGUI
+        // objects for, and the version/fps stamp is a throwaway dev readout, not player-facing UI.
         void OnGUI()
         {
             // The HUD belongs to the run. Drawing score and gate labels over the main menu or a
@@ -695,21 +751,7 @@ namespace Frontline
                          || GameUI.Instance.Screen == Screen_.Paused;
             if (!inRun) return;
 
-            float s = UiScale;
-            GUI.skin.label.fontSize = Scaled(22);
-            float line = 28f * s;
-            GUI.Label(new Rect(14f * s, 10f * s, 400f * s, line), $"SCORE {Score}");
-            GUI.Label(new Rect(14f * s, 10f * s + line, 400f * s, line), $"LIVES {Health}");
-            GUI.Label(new Rect(14f * s, 10f * s + line * 2f, 400f * s, line), $"STAGE {Stage}");
-            if (PlayerWeapon.Instance != null && PlayerWeapon.Instance.Current != null)
-            {
-                // The %DMG stays on screen permanently, not just in the level-up flash --
-                // "are you sure a level 1 ak and level 2 ak have different stats?" is answered
-                // better by a number you can check any time than by a flash you might miss.
-                int pct = Mathf.RoundToInt((DamageMult - 1f) * 100f);
-                GUI.Label(new Rect(14f * s, 10f * s + line * 3f, 400f * s, line),
-                          $"WEAPON {PlayerWeapon.Instance.Current.DisplayName}  Lv{Level} (+{pct}% DMG)");
-            }
+            UpdateHud();
 
             DrawGateLabels();
             DrawHurdleLabels();

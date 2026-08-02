@@ -48,6 +48,7 @@ namespace Frontline
         GameObject _upgradesCanvas;
         GameObject _leaderboardCanvas;
         GameObject _pauseButtonCanvas;
+        GameObject _gameplayHud;
 
         CheckboxToggle _soundToggle;
         TMPro.TextMeshProUGUI _topBarSupplyText;
@@ -67,6 +68,7 @@ namespace Frontline
             ApplyTimeScale();
 
             _menuBackground = Find("MenuBackground");
+            _gameplayHud = Find("GameplayHud");
             WireShell();
             WireMainMenu();
             WirePaused();
@@ -87,8 +89,8 @@ namespace Frontline
             GameObject c = Find("Shell");
             _shell = c;
             if (c == null) return;
-            UIWire.Click(c, "TopBar/SettingsGearButton", () => { _returnTo = Screen; Go(Screen_.Settings); });
             UIWire.Click(c, "TopBar/LibraryButton", () => GameManager.ExitToHubOverride?.Invoke());
+            UIWire.Click(c, "TopBar/SettingsGearButton", () => { _returnTo = Screen; Go(Screen_.Settings); });
 
             _topBarSupplyText = c.transform.Find("TopBar/SupplyPill/Value")?.GetComponent<TMPro.TextMeshProUGUI>();
 
@@ -418,6 +420,7 @@ namespace Frontline
             SetActive(_upgradesCanvas, Screen == Screen_.Upgrades);
             SetActive(_leaderboardCanvas, Screen == Screen_.Leaderboard);
             SetActive(_pauseButtonCanvas, Screen == Screen_.Playing);
+            SetActive(_gameplayHud, Screen == Screen_.Playing || Screen == Screen_.Paused);
             RefreshTabHighlight();
         }
 

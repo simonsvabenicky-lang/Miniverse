@@ -16,7 +16,7 @@ namespace Frontline.EditorTools
     /// </summary>
     public static class UIImporter
     {
-        const string UiRoot = "Assets/Games/Frontline/Art/UI"; // repointed at graduation (2026-07-27)
+        const string UiRoot = "Assets/Games/Frontline/Art/UI";
 
         static System.DateTime s_ImportStarted;
         static bool s_TmpDone;

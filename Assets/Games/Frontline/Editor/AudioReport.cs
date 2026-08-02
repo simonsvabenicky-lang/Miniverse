@@ -20,7 +20,7 @@ namespace Frontline.EditorTools
         [MenuItem("Frontline/Report Audio Levels")]
         public static void Run()
         {
-            var rows = AssetDatabase.FindAssets("t:AudioClip", new[] { "Assets/Audio" })
+            var rows = AssetDatabase.FindAssets("t:AudioClip", new[] { "Assets/Games/Frontline/Audio" })
                 .Select(AssetDatabase.GUIDToAssetPath)
                 .OrderBy(p => p)
                 .ToArray();

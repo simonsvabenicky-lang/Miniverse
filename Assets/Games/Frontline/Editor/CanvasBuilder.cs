@@ -25,7 +25,7 @@ namespace Frontline.EditorTools
     /// </summary>
     public static class CanvasBuilder
     {
-        const string UiRoot = "Assets/Games/Frontline/Art/UI"; // repointed at graduation (2026-07-27)
+        const string UiRoot = "Assets/Games/Frontline/Art/UI";
 
         public static void Build()
         {
@@ -61,6 +61,7 @@ namespace Frontline.EditorTools
             BuildLeaderboard(root);
             BuildUpgrades(root);
             BuildPauseButton(root);
+            BuildGameplayHud(root);
             BuildDeathScreen(root);
             // Built last -> highest sibling index -> renders on top of every tabbed screen's own
             // content, so the persistent chrome never gets buried under a scroll view or a card.
@@ -569,6 +570,63 @@ namespace Frontline.EditorTools
         }
 
         /// <summary>
+        /// The run readout (score/lives/stage/weapon), top-left, live during Playing and Paused
+        /// -- same corner and same four lines the old IMGUI HUD drew, just a real card now
+        /// instead of default-skin text stamped straight onto the battlefield. GameManager finds
+        /// these four rows by name each Awake and fills them in every frame; visibility is
+        /// GameUI's job (RefreshCanvasVisibility), same as every other screen's canvas.
+        /// </summary>
+        static void BuildGameplayHud(Transform canvasRoot)
+        {
+            var root = NewRect("GameplayHud", canvasRoot);
+            Stretch(root);
+
+            const float w = 250f, h = 168f;
+            var panel = NewRect("StatsPanel", root);
+            PlaceTopLeft(panel, 14f, 10f, w, h);
+            var panelImg = panel.gameObject.AddComponent<Image>();
+            panelImg.sprite = ExtraSprite("input_rectangle");
+            panelImg.type = Image.Type.Sliced;
+            // Slightly translucent -- an opaque card this size would eat too much of the lane
+            // the player is actually watching.
+            panelImg.color = new Color(1f, 1f, 1f, 0.92f);
+
+            AddHudRow(panel, "ScoreText", 0);
+
+            var livesTmp = AddHudRow(panel, "LivesText", 1, leftPad: 0.30f);
+            var heartRt = AnchorPoint(panel, "HeartIcon", 0.145f, 0.625f, 22f, 22f);
+            heartRt.gameObject.AddComponent<Image>().raycastTarget = false;
+            heartRt.gameObject.AddComponent<ProceduralHeartIcon>();
+
+            AddHudRow(panel, "StageText", 2);
+
+            // Auto-sized: "MINIGUN Lv4 (+120% DMG)" is a lot longer than "AK Lv1 (+0% DMG)", and
+            // this is the one row whose content length actually varies at runtime.
+            var weaponTmp = AddHudRow(panel, "WeaponText", 3);
+            weaponTmp.enableAutoSizing = true;
+            weaponTmp.fontSizeMin = 12;
+            weaponTmp.fontSizeMax = 18;
+        }
+
+        /// <summary>One quarter-height row of the gameplay HUD card, left-aligned bold text in
+        /// the same dark-on-white ink every other panel in the game uses.</summary>
+        static TextMeshProUGUI AddHudRow(Transform panel, string name, int rowIndex, float leftPad = 0.08f, int rowCount = 4)
+        {
+            float t0 = 1f - (rowIndex + 1) / (float)rowCount;
+            float t1 = 1f - rowIndex / (float)rowCount;
+            var rt = AnchorRect(panel, name, new Vector2(leftPad, t0), new Vector2(0.95f, t1));
+            var tmp = rt.gameObject.AddComponent<TextMeshProUGUI>();
+            tmp.fontSize = 18;
+            tmp.fontStyle = FontStyles.Bold;
+            tmp.alignment = TextAlignmentOptions.Left;
+            tmp.color = new Color(0.15f, 0.15f, 0.18f);
+            tmp.enableWordWrapping = false;
+            tmp.overflowMode = TextOverflowModes.Overflow;
+            tmp.raycastTarget = false;
+            return tmp;
+        }
+
+        /// <summary>
         /// Score/Stage/Level text is baked empty here and filled by GameManager at the moment
         /// the run ends -- unlike the weapon codex, this genuinely can't be known until then.
         /// </summary>
@@ -676,6 +734,18 @@ namespace Frontline.EditorTools
             rt.pivot = new Vector2(0.5f, 1f);
             rt.sizeDelta = new Vector2(w, h);
             rt.anchoredPosition = new Vector2(x, -yFromTop);
+            return rt;
+        }
+
+        /// <summary>Top-left anchored, positioned by a fixed pixel margin from that corner --
+        /// safe on any device aspect ratio, unlike PlaceTopCenter's x offset (which is measured
+        /// from the canvas's actual local width, not reliably the 540 reference).</summary>
+        static RectTransform PlaceTopLeft(RectTransform rt, float marginX, float marginY, float w, float h)
+        {
+            rt.anchorMin = rt.anchorMax = new Vector2(0f, 1f);
+            rt.pivot = new Vector2(0f, 1f);
+            rt.sizeDelta = new Vector2(w, h);
+            rt.anchoredPosition = new Vector2(marginX, -marginY);
             return rt;
         }
 

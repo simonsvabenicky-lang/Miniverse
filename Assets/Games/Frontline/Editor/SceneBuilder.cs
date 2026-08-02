@@ -17,10 +17,6 @@ namespace Frontline.EditorTools
     /// </summary>
     public static class SceneBuilder
     {
-        // Repointed at graduation (2026-07-27): these used to be Frontline's own top-level
-        // Assets/ paths, correct only for the standalone D:\Frontline project. Left unfixed,
-        // Build() would either miss every asset or write a stray Assets/Scenes/Main.unity at
-        // Miniverse's project root instead of updating the real graduated scene.
         const string ScenePath = "Assets/Games/Frontline/Scenes/Main.unity";
         const string ProfilePath = "Assets/Games/Frontline/Settings/FrontlineVolume.asset";
         const string PrefabDir = "Assets/Games/Frontline/Art/Prefabs";
@@ -175,7 +171,6 @@ namespace Frontline.EditorTools
             systems.AddComponent<GateSpawner>();
             systems.AddComponent<GameUI>();   // menu / pause / settings shell
             systems.AddComponent<AutoPilot>();   // inert unless -autopilot is passed
-
             // The IMiniGame adapter HubLauncher looks for after loading this scene. Written at
             // graduation time but never actually attached anywhere until now -- the scene file
             // is the source of truth, so a script existing on disk with nothing instantiating
@@ -246,7 +241,7 @@ namespace Frontline.EditorTools
             // Regenerated from scratch each time, same contract as the scene: edit the C#,
             // not the asset.
             AssetDatabase.DeleteAsset(ProfilePath);
-            Directory.CreateDirectory("Assets/Settings");
+            Directory.CreateDirectory("Assets/Games/Frontline/Settings");
 
             var profile = ScriptableObject.CreateInstance<VolumeProfile>();
             AssetDatabase.CreateAsset(profile, ProfilePath);
@@ -470,7 +465,7 @@ namespace Frontline.EditorTools
                 shader = Shader.Find("Standard");
             }
             var mat = new Material(shader) { name = name, color = color };
-            Directory.CreateDirectory("Assets/Games/Frontline/Materials"); // repointed at graduation (2026-07-27)
+            Directory.CreateDirectory("Assets/Games/Frontline/Materials");
             AssetDatabase.CreateAsset(mat, $"Assets/Games/Frontline/Materials/{name}.mat");
             return mat;
         }

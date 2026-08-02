@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -19,7 +20,6 @@ namespace Frontline.EditorTools
     /// </summary>
     public static class ArtImporter
     {
-        // repointed at graduation (2026-07-27)
         const string ArtRoot = "Assets/Games/Frontline/Art";
         const string PrefabDir = "Assets/Games/Frontline/Art/Prefabs";
         const string AnimatorDir = "Assets/Games/Frontline/Art/Animators";
@@ -509,6 +509,340 @@ namespace Frontline.EditorTools
             string outPath = $"Shots/preview_{prefabName}.png";
             File.WriteAllBytes(outPath, tex.EncodeToPNG());
             Debug.Log($"[Frontline] preview -> {outPath} (clip '{(clip != null ? clip.name : "none")}')");
+        }
+
+        /// <summary>
+        /// Marketing/store key art: both heroes posed with a heavier weapon than they ever
+        /// actually start with, a couple of dropped enemies at their feet, and a few
+        /// Environment props for a battlefield instead of void. Same "instantiate, pose by
+        /// hand, render to a RenderTexture, write PNG" recipe as RenderPreview -- just a wider
+        /// scene instead of one character on a solid backdrop. First-attempt framing: expect to
+        /// re-run this with different numbers once Simon has seen a render.
+        ///
+        ///   Unity.exe -batchmode -quit -projectPath . -executeMethod Frontline.EditorTools.ArtImporter.RenderKeyArt
+        /// </summary>
+        [MenuItem("Frontline/Render Key Art")]
+        public static void RenderKeyArt()
+        {
+            UnityEditor.SceneManagement.EditorSceneManager.NewScene(
+                UnityEditor.SceneManagement.NewSceneSetup.EmptyScene,
+                UnityEditor.SceneManagement.NewSceneMode.Single);
+
+            // ---- ground ----
+            var dirt = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            dirt.name = "Ground";
+            Object.DestroyImmediate(dirt.GetComponent<Collider>());
+            dirt.transform.localScale = new Vector3(1.4f, 1f, 1.4f);
+            dirt.GetComponent<MeshRenderer>().sharedMaterial =
+                AssetDatabase.LoadAssetAtPath<Material>("Assets/Games/Frontline/Materials/GroundMat.mat");
+
+            // ---- heroes -- closer together than attempt 5 but backed off from attempt 6's 0.8,
+            // which overlapped both of them ----
+            GameObject soldier = SpawnPosedCharacter("Player", new Vector3(-0.95f, 0f, 0f), "Sniper");
+            GameObject hazmat = SpawnPosedCharacter("Player_Hazmat", new Vector3(0.95f, 0f, 0f), "RocketLauncher");
+
+            // ---- exactly two dropped enemies (Simon: "only two... as close as possible
+            // without touching"), pulled in tighter still -- yawed away from each other so
+            // limbs don't reach across the gap ----
+            GameObject enemyL = SpawnDeadEnemy(new Vector3(-1.05f, 0f, 1.6f), 35f);
+            GameObject enemyR = SpawnDeadEnemy(new Vector3(1.05f, 0f, 1.6f), -145f);
+
+            // ---- background. All three were lying on their sides (RenderTiltTest, see
+            // store-assets/keyart/tilt_test.png caught it from a raised angle -- the flat
+            // top-down/orthographic yaw tests couldn't tell "facing the camera" from "facing
+            // the camera while tipped over on its back", which is exactly what was wrong with
+            // the tank's barrel). All three needed the same fix: +90 pitch to stand them
+            // upright, applied in local space before yaw (Quaternion.Euler applies Z, X, Y in
+            // that order -- pitch happens first, then yaw spins the now-upright model to face
+            // wherever it needs to on the ground). Re-ran the yaw test with the pitch fix in
+            // place to find yaw ~0 faces the camera for all three, once they're standing up.
+            //
+            // Screen left/right is the OPPOSITE of world +x/-x from this camera (verified by
+            // checking which hero -- spawned at known x -- actually rendered on which side), so
+            // "wall on screen-left" needs positive x, not negative.
+            GameObject wall = SpawnProp("BrickWall_2", new Vector3(2.4f, 0.7f, -2.0f), 0f, 90f);
+            // Yaw 15, not a dead 0 -- "slightly at an angle" per Simon, only for the tank.
+            GameObject tank = SpawnProp("Tank", new Vector3(0f, 0.7f, -3.0f), 15f, 90f);
+            GameObject car = SpawnProp("Debris_BrokenCar", new Vector3(-2.6f, 0.7f, -3.4f), 0f, 90f);
+
+            // Tank green, per Simon -- multiplying _BaseColor rather than replacing it outright
+            // (see ReportEnemyMaterials' doc comment: flat colour replacements have broken this
+            // art pack's shading twice before), so the model's own baked shading/AO survives.
+            var tankGreen = new Color(0.30f, 0.42f, 0.24f);
+            foreach (Renderer r in tank.GetComponentsInChildren<Renderer>(true))
+                r.material.SetColor("_BaseColor", tankGreen);
+
+            CheckOverlaps(
+                ("Soldier", soldier), ("Hazmat", hazmat),
+                ("EnemyL", enemyL), ("EnemyR", enemyR),
+                ("BrickWall", wall), ("Tank", tank), ("Car", car));
+
+            // ---- lighting: warm key light + a dim cool fill so the shadow side isn't pure black ----
+            var sunGo = new GameObject("Sun");
+            Light sun = sunGo.AddComponent<Light>();
+            sun.type = LightType.Directional;
+            sun.color = new Color(1f, 0.92f, 0.78f);
+            sun.intensity = 1.5f;
+            sunGo.transform.rotation = Quaternion.Euler(38f, 145f, 0f);
+
+            var fillGo = new GameObject("Fill");
+            Light fill = fillGo.AddComponent<Light>();
+            fill.type = LightType.Directional;
+            fill.color = new Color(0.55f, 0.62f, 0.75f);
+            fill.intensity = 0.4f;
+            fillGo.transform.rotation = Quaternion.Euler(30f, -60f, 0f);
+
+            RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
+            RenderSettings.ambientLight = new Color(0.35f, 0.3f, 0.28f);
+
+            // ---- camera: pulled back and slightly high, low-angle "hero shot" ----
+            var camGo = new GameObject("KeyArtCam");
+            Camera cam = camGo.AddComponent<Camera>();
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            // Same sunset family CanvasBuilder's menu backdrop uses, so this reads as one brand
+            // even before a real gradient/sky is composited behind it.
+            cam.backgroundColor = new Color(0.62f, 0.30f, 0.17f);
+            cam.fieldOfView = 36f;
+            // Closer than attempt 5, to match the tighter cluster -- everyone's nearer the
+            // centre now, so this can zoom in without cropping anyone.
+            camGo.transform.position = new Vector3(0f, 1.9f, 7.0f);
+            camGo.transform.LookAt(new Vector3(0f, 0.95f, -0.1f));
+
+            const int W = 1400, H = 1400;
+            var rt = new RenderTexture(W, H, 24);
+            cam.targetTexture = rt;
+            cam.Render();
+            cam.Render();   // first render in a fresh batchmode session comes back untextured
+
+            RenderTexture prev = RenderTexture.active;
+            RenderTexture.active = rt;
+            var tex = new Texture2D(W, H, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, W, H), 0, 0);
+            tex.Apply();
+            RenderTexture.active = prev;
+            cam.targetTexture = null;
+
+            Directory.CreateDirectory("store-assets/keyart");
+            string outPath = "store-assets/keyart/attempt9.png";
+            File.WriteAllBytes(outPath, tex.EncodeToPNG());
+            Debug.Log($"[Frontline] key art -> {outPath}");
+        }
+
+        /// <summary>
+        /// "Check nothing is going through anything else" -- pairwise world-space renderer
+        /// bounds against every other spawned piece, logged as a warning per overlapping pair.
+        /// Pixel-eyeballing a 1400px render missed the enemy-through-soldier clip that prompted
+        /// this in the first place; a bounds check catches it even where the render doesn't make
+        /// it obvious (limbs behind another mesh, etc).
+        /// </summary>
+        static void CheckOverlaps(params (string name, GameObject go)[] objects)
+        {
+            var bounds = new List<(string name, Bounds b)>();
+            foreach (var (name, go) in objects)
+            {
+                // Excludes the held weapon: a rifle barrel's bounding box reaching over a nearby
+                // corpse isn't what "going through" means, and every character's gun is long
+                // enough that including it made this warn on nearly every pair regardless of
+                // whether the actual bodies were anywhere near each other.
+                Bounds? b = null;
+                foreach (Renderer r in go.GetComponentsInChildren<Renderer>(true))
+                {
+                    bool underGun = false;
+                    for (Transform t = r.transform; t != null && t != go.transform; t = t.parent)
+                        if (GunMeshes.Contains(t.name)) { underGun = true; break; }
+                    if (underGun) continue;
+                    if (b == null) b = r.bounds;
+                    else { Bounds bb = b.Value; bb.Encapsulate(r.bounds); b = bb; }
+                }
+                if (b != null) bounds.Add((name, b.Value));
+            }
+
+            bool any = false;
+            for (int i = 0; i < bounds.Count; i++)
+            for (int j = i + 1; j < bounds.Count; j++)
+                if (bounds[i].b.Intersects(bounds[j].b))
+                {
+                    any = true;
+                    Debug.LogWarning($"[Frontline] KEY ART OVERLAP: {bounds[i].name} {bounds[i].b} <-> {bounds[j].name} {bounds[j].b}");
+                }
+            if (!any) Debug.Log("[Frontline] key art: no bounding-box overlaps between any spawned piece.");
+        }
+
+        /// <summary>
+        /// One-off: 4 yaws x 3 props laid out in a grid, all facing the same camera, so the
+        /// right "faces the camera" rotation for each prop can be read off a single render
+        /// instead of guessed one full-scene render at a time.
+        ///
+        ///   Unity.exe -batchmode -quit -projectPath . -executeMethod Frontline.EditorTools.ArtImporter.RenderRotationTest
+        /// </summary>
+        /// <summary>
+        /// Each of the 3 background props, unrotated, from a raised three-quarter angle -- the
+        /// flat orthographic front-on test could tell facing (left/right) apart but couldn't
+        /// tell "pointing at the camera" from "pointing at the floor", which is exactly the bug
+        /// Simon caught (the tank's barrel). This looks from above and to the side specifically
+        /// so a downward-pointing barrel is obviously downward instead of foreshortened away.
+        ///
+        ///   Unity.exe -batchmode -quit -projectPath . -executeMethod Frontline.EditorTools.ArtImporter.RenderTiltTest
+        /// </summary>
+        [MenuItem("Frontline/Render Key Art Tilt Test")]
+        public static void RenderTiltTest()
+        {
+            UnityEditor.SceneManagement.EditorSceneManager.NewScene(
+                UnityEditor.SceneManagement.NewSceneSetup.EmptyScene,
+                UnityEditor.SceneManagement.NewSceneMode.Single);
+
+            var dirt = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            dirt.transform.localScale = new Vector3(2f, 1f, 2f);
+            dirt.GetComponent<MeshRenderer>().sharedMaterial =
+                AssetDatabase.LoadAssetAtPath<Material>("Assets/Games/Frontline/Materials/GroundMat.mat");
+
+            string[] props = { "Debris_BrokenCar", "Tank", "BrickWall_2" };
+            for (int i = 0; i < props.Length; i++)
+                SpawnProp(props[i], new Vector3(i * 6f - 6f, 0.7f, 0f), 0f, 90f);
+
+            var sunGo = new GameObject("Sun");
+            Light sun = sunGo.AddComponent<Light>();
+            sun.type = LightType.Directional;
+            sun.intensity = 1.4f;
+            sunGo.transform.rotation = Quaternion.Euler(45f, 150f, 0f);
+            RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
+            RenderSettings.ambientLight = new Color(0.4f, 0.4f, 0.4f);
+
+            var camGo = new GameObject("Cam");
+            Camera cam = camGo.AddComponent<Camera>();
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = Color.black;
+            cam.fieldOfView = 45f;
+            // Raised and pulled back, aimed level-ish at the row -- high enough that a
+            // downward-pointing barrel reads as clearly downward, not head-on-foreshortened.
+            camGo.transform.position = new Vector3(0f, 4.5f, 9f);
+            camGo.transform.LookAt(new Vector3(0f, 0.5f, 0f));
+
+            const int W = 1800, H = 900;
+            var rt = new RenderTexture(W, H, 24);
+            cam.targetTexture = rt;
+            cam.Render();
+            cam.Render();
+            RenderTexture prev = RenderTexture.active;
+            RenderTexture.active = rt;
+            var tex = new Texture2D(W, H, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, W, H), 0, 0);
+            tex.Apply();
+            RenderTexture.active = prev;
+            cam.targetTexture = null;
+
+            Directory.CreateDirectory("store-assets/keyart");
+            File.WriteAllBytes("store-assets/keyart/tilt_test.png", tex.EncodeToPNG());
+            Debug.Log("[Frontline] tilt test -> store-assets/keyart/tilt_test.png " +
+                      "(left to right: Debris_BrokenCar, Tank, BrickWall_2, all yaw=0)");
+        }
+
+        [MenuItem("Frontline/Render Key Art Rotation Test")]
+        public static void RenderRotationTest()
+        {
+            UnityEditor.SceneManagement.EditorSceneManager.NewScene(
+                UnityEditor.SceneManagement.NewSceneSetup.EmptyScene,
+                UnityEditor.SceneManagement.NewSceneMode.Single);
+
+            var dirt = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            dirt.transform.localScale = new Vector3(6f, 1f, 2f);
+            dirt.GetComponent<MeshRenderer>().sharedMaterial =
+                AssetDatabase.LoadAssetAtPath<Material>("Assets/Games/Frontline/Materials/GroundMat.mat");
+
+            // All 12 (3 props x 4 yaws) in a single line along x, same y/z -- an orthographic
+            // camera looking dead along -z projects x/y linearly regardless of depth, so unlike
+            // the first attempt (a wide perspective grid, where the outer columns picked up
+            // apparent skew just from being off to the side of the camera) nothing here can be
+            // mistaken for a rotation that isn't really there.
+            string[] props = { "Debris_BrokenCar", "Tank", "BrickWall_2" };
+            float[] yaws = { 0f, 90f, 180f, 270f };
+            int slot = 0;
+            foreach (string prop in props)
+                foreach (float yaw in yaws)
+                    SpawnProp(prop, new Vector3(slot++ * 4f - 22f, 0.7f, 0f), yaw, 90f);
+
+            var sunGo = new GameObject("Sun");
+            Light sun = sunGo.AddComponent<Light>();
+            sun.type = LightType.Directional;
+            sun.intensity = 1.4f;
+            sunGo.transform.rotation = Quaternion.Euler(45f, 150f, 0f);
+            RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
+            RenderSettings.ambientLight = new Color(0.4f, 0.4f, 0.4f);
+
+            var camGo = new GameObject("Cam");
+            Camera cam = camGo.AddComponent<Camera>();
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = Color.black;
+            cam.orthographic = true;
+            cam.orthographicSize = 3.8f;
+            camGo.transform.position = new Vector3(0f, 1.2f, 12f);
+            camGo.transform.rotation = Quaternion.LookRotation(Vector3.back);   // dead level, no tilt
+
+            const int W = 3200, H = 500;
+            var rt = new RenderTexture(W, H, 24);
+            cam.targetTexture = rt;
+            cam.Render();
+            cam.Render();
+            RenderTexture prev = RenderTexture.active;
+            RenderTexture.active = rt;
+            var tex = new Texture2D(W, H, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, W, H), 0, 0);
+            tex.Apply();
+            RenderTexture.active = prev;
+            cam.targetTexture = null;
+
+            Directory.CreateDirectory("store-assets/keyart");
+            File.WriteAllBytes("store-assets/keyart/rotation_test.png", tex.EncodeToPNG());
+            Debug.Log("[Frontline] rotation test -> store-assets/keyart/rotation_test.png " +
+                      "(rows: BrickWall_2, Tank, Debris_BrokenCar; columns: yaw 0/90/180/270)");
+        }
+
+        static GameObject SpawnPosedCharacter(string prefabName, Vector3 pos, string gun)
+        {
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>($"{PrefabDir}/{prefabName}.prefab");
+            var go = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
+            go.transform.SetPositionAndRotation(pos, Quaternion.identity);
+
+            foreach (Transform t in go.GetComponentsInChildren<Transform>(true))
+                if (GunMeshes.Contains(t.name))
+                    t.gameObject.SetActive(t.name == gun);
+
+            var controller = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>($"{AnimatorDir}/{prefabName}.controller");
+            AnimationClip clip = controller != null ? controller.animationClips.FirstOrDefault() : null;
+            if (clip != null) clip.SampleAnimation(go, clip.length * 0.5f);
+
+            return go;
+        }
+
+        static GameObject SpawnDeadEnemy(Vector3 pos, float yaw)
+        {
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>($"{PrefabDir}/Enemy.prefab");
+            var go = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
+            go.transform.SetPositionAndRotation(pos, Quaternion.Euler(0f, yaw, 0f));
+
+            // A corpse gripping an upright knife reads like a tombstone, not a body -- the
+            // Enemy prefab ships with Knife_1 active (its melee weapon), so switch it off
+            // explicitly rather than leaving whatever BuildCharacter last enabled.
+            foreach (Transform t in go.GetComponentsInChildren<Transform>(true))
+                if (GunMeshes.Contains(t.name))
+                    t.gameObject.SetActive(false);
+
+            AnimationClip death = FindClip($"{ArtRoot}/Characters/Character_Enemy.fbx", "Death");
+            if (death != null) death.SampleAnimation(go, death.length);
+            return go;
+        }
+
+        static GameObject SpawnProp(string propName, Vector3 pos, float yaw, float pitch = 0f)
+        {
+            var fbx = AssetDatabase.LoadAssetAtPath<GameObject>($"{ArtRoot}/Environment/{propName}.fbx");
+            if (fbx == null) { Debug.LogWarning($"[Frontline] key art: missing prop {propName}"); return null; }
+            var go = (GameObject)Object.Instantiate(fbx);
+            go.name = propName;
+            // Euler applies Z, then X (pitch), then Y (yaw) -- the pitch correction happens in
+            // the model's own local space before yaw swings the (now upright) object to face
+            // wherever it needs to on the ground.
+            go.transform.SetPositionAndRotation(pos, Quaternion.Euler(pitch, yaw, 0f));
+            return go;
         }
 
         /// <summary>
