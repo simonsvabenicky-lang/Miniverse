@@ -202,8 +202,7 @@ namespace FlowSort.EditorTools
                 if (dirt != null) m.SetTexture("_MainTex", dirt);
             });
 
-            art.TurretCommonModel = Load<GameObject>($"{ProjectPaths.TowerDefense}/weapon-turret.fbx");
-            art.TurretGoldModel = Load<GameObject>($"{ProjectPaths.TowerDefense}/weapon-cannon.fbx");
+            art.TurretCommonModel = Load<GameObject>($"{ProjectPaths.ToonShooterKit}/Tank.fbx");
 
             art.RoadStraightModel = Load<GameObject>($"{ProjectPaths.RacingKit}/roadStraight.fbx");
             art.RoadCornerModel = Load<GameObject>($"{ProjectPaths.RacingKit}/roadCornerSmall.fbx");

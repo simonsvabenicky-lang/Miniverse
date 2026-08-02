@@ -247,8 +247,12 @@ namespace FlowSort.Blocks
             transform.position = ConveyorPath.PositionAt(distance)
                                  - new Vector3(fireDir.x, fireDir.y, 0f) * recoilOffset;
 
+            // RotationAt keeps the tower's rest-pose facing (gun toward the wall) pointed the
+            // right way around every corner, but the rest pose itself is calibrated to the belt's
+            // straight-ahead heading — so riding it as-is aims the gun down the track rather than
+            // in at the board. The quarter turn corrects for that offset once, everywhere.
             if (model != null)
-                model.localRotation = Quaternion.Euler(0f, 0f, ConveyorPath.RotationAt(distance));
+                model.localRotation = Quaternion.Euler(0f, 0f, ConveyorPath.RotationAt(distance) + 90f);
 
             // Fire only when the first block straight ahead is our colour AND nothing is already
             // in the air toward it. Anything else and we hold fire entirely — ammo is never spent

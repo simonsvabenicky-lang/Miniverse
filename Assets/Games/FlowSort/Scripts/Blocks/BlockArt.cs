@@ -20,9 +20,8 @@ namespace FlowSort.Blocks
         public Material TrackMaterial;
         public Material TowerMaterial;
 
-        [Header("Turret models (Kenney Tower Defense Kit, CC0)")]
+        [Header("Turret model (Modern-Military ToonShooterKit)")]
         public GameObject TurretCommonModel;
-        public GameObject TurretGoldModel;
 
         [Header("Track models (Kenney Racing Kit, CC0)")]
         public GameObject RoadStraightModel;
@@ -56,18 +55,28 @@ namespace FlowSort.Blocks
     public static class TowerFactory
     {
         /// <summary>
-        /// Kenney's turret mesh is 0.62 along its barrel axis, so this puts it at roughly
-        /// 4.3 world units — a little under the 5.6-unit slot pitch. At the original 2.6 it
-        /// rendered as a 1.6-unit speck lost in its slot.
+        /// The tank's mesh is authored tiny — raw bounds 0.0211 x 0.0223 x 0.0191 (X/Y/Z, before
+        /// the stand-up pitch below) — and setting Transform.localScale, unlike parenting under an
+        /// unscaled prefab instance, REPLACES the value rather than multiplying it. So this can't
+        /// lean on Unity's usual "FBX unit conversion just works" default the way every other
+        /// import in this project does: it has to target the true mesh size directly, or the tank
+        /// renders at roughly 1/100th its intended size — present and tappable (everything else
+        /// about a tower is built off its transform, not its mesh) but visually gone.
+        /// Pitched, its footprint in the slot is 0.0211 wide by 0.0223 tall, and this scales that
+        /// to fill roughly the same fraction of the slot pitch the old Kenney turret did (~75%),
+        /// so the swap didn't also change how crowded a full belt reads.
         /// </summary>
-        public const float ModelScale = 5f;
+        public const float ModelScale = 174f;
 
         /// <summary>
-        /// Kenney's tower-defense pieces are authored for a top-down view: barrel along +Y-up
-        /// with the base on the ground plane. Pitching the visual back by 90 degrees stands it up
-        /// to face our front-on camera, so the aim rotation about Z then reads correctly.
+        /// The tank is a normal upright vehicle model — Y up, footprint on the XZ ground plane —
+        /// but the game's play field is the XY plane (the camera looks straight down +Z). Pitching
+        /// back 90 degrees around X lays the model's up-axis into the field's Y axis, the same
+        /// flattening the previous top-down Kenney turret needed for the opposite reason. The
+        /// extra 180 yaw is because the model's front faces -Z in its own space, which after the
+        /// pitch put its BACK toward the camera — this turns the front to face the player instead.
         /// </summary>
-        static readonly Vector3 VisualEuler = new Vector3(-90f, 0f, 0f);
+        static readonly Vector3 VisualEuler = new Vector3(-90f, 180f, 0f);
 
         public static ConveyorTower Create(BlockArt art, byte colorIndex, int ammo, BallSystem balls,
                                            BlockWall wall, ImpactFX fx,
@@ -130,9 +139,9 @@ namespace FlowSort.Blocks
             var go = new GameObject("Ammo", typeof(TextMeshPro));
             go.transform.SetParent(parent, false);
 
-            // Well clear of the model's front face (the mesh is ~2.1 units deep once scaled), so
+            // Well clear of the model's front face (the tank is ~3.1 units deep once scaled), so
             // the number can't end up buried inside the turret geometry. Lifted slightly because
-            // the turret's legs pull its visual mass above its bounds centre.
+            // the model's visual mass sits above its bounds centre.
             go.transform.localPosition = new Vector3(0f, 0.5f, -4f);
 
             var tmp = go.GetComponent<TextMeshPro>();

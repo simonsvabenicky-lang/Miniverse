@@ -29,6 +29,7 @@ namespace FlowSort.EditorTools
         public static string Particles => Art + "/Particles";
         public static string TowerDefense => Art + "/TowerDefense";
         public static string RacingKit => Art + "/RacingKit";
+        public static string ToonShooterKit => Art + "/ToonShooterKit";
 
         // Renamed from Main.unity at graduation: Frontline's own scene is already named "Main",
         // and Unity resolves SceneManager.LoadScene(string) by scene NAME, not path -- two scenes
