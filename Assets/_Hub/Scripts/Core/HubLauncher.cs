@@ -43,6 +43,29 @@ namespace Miniverse.Hub
             }
 
             _activeGameId = def.gameId;
+
+            // Deactivate Home's own UI *before* the additive load, not after: Unity runs the
+            // freshly-loaded scene's Awake() calls synchronously inside LoadScene, before
+            // sceneLoaded fires -- so deactivating here only in the sceneLoaded callback left
+            // Home's own "Canvas/Shell" active at the exact moment the minigame's own Awake
+            // (e.g. Frontline's GameUI.WireShell, GameObject.Find("Canvas/Shell")) ran. Both
+            // Home and every minigame's own generated scene use "Canvas" as their root Canvas
+            // name and Home's own top bar is named "Shell" too (HubCanvasBuilder.BuildShell),
+            // so a same-named GameObject.Find while both are active is ambiguous and can bind
+            // to Home's Shell instead of the minigame's own -- exactly what broke Frontline's
+            // in-game HUD staying visible during Playing after its 2026-08-02 re-sync (its
+            // _shell field pointed at Home's Shell, so RefreshCanvasVisibility was toggling the
+            // wrong object). Deactivating first means GameObject.Find only ever sees one match.
+            if (_homeUIRoot != null) _homeUIRoot.SetActive(false);
+
+            // Home's EventSystem is a separate root object, not a child of _homeUIRoot, so
+            // hiding the Canvas above doesn't touch it — it stays enabled and fights the
+            // minigame's own additively-loaded EventSystem for UI input. Found on-device during
+            // FlowSort's graduation: the grid taps (raw Pointer + Physics2D, no EventSystem
+            // involved) worked fine, but the real uGUI exit Button never fired at all with two
+            // EventSystems live at once.
+            if (_homeEventSystem != null) _homeEventSystem.SetActive(false);
+
             SceneManager.LoadScene(def.sceneName, LoadSceneMode.Additive);
             SceneManager.sceneLoaded += OnGameSceneLoaded;
         }
@@ -60,22 +83,6 @@ namespace Miniverse.Hub
                 UnloadActiveGameScene();
                 return;
             }
-
-            // Additive loading means Home's own Canvas is still in the hierarchy and still
-            // rendering — without this, Home's title/grid visibly bleed through on top of (or
-            // interleaved with) the minigame's own UI and 3D scene, sort order between the two
-            // Canvases being otherwise undefined. Caught on-device during Frontline's
-            // graduation: PLAY worked, but "PocketVerse" and the empty tile box were still
-            // floating over live gameplay.
-            if (_homeUIRoot != null) _homeUIRoot.SetActive(false);
-
-            // Home's EventSystem is a separate root object, not a child of _homeUIRoot, so
-            // hiding the Canvas above doesn't touch it — it stays enabled and fights the
-            // minigame's own additively-loaded EventSystem for UI input. Found on-device during
-            // FlowSort's graduation: the grid taps (raw Pointer + Physics2D, no EventSystem
-            // involved) worked fine, but the real uGUI exit Button never fired at all with two
-            // EventSystems live at once.
-            if (_homeEventSystem != null) _homeEventSystem.SetActive(false);
 
             _activeGame.Init(new MiniGameContext(_activeGameId));
             _activeGame.StartGame();
