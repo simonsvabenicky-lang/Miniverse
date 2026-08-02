@@ -66,6 +66,15 @@ namespace Miniverse.Hub
             // EventSystems live at once.
             if (_homeEventSystem != null) _homeEventSystem.SetActive(false);
 
+            // HubAudio's mute toggle works by setting the global AudioListener.volume, which
+            // applies to the whole process, not just Home -- if the player had muted Home, that
+            // 0 stuck around for every minigame too, regardless of the minigame's own separate
+            // mute setting (Frontline's own Audio class scales its own AudioSources, unaware the
+            // shared listener was already silenced underneath it). A minigame is supposed to
+            // control its own audio independently of Home's mute state, so reset to full here
+            // and let ReactivateHome() below restore Home's own preference on the way back.
+            AudioListener.volume = 1f;
+
             SceneManager.LoadScene(def.sceneName, LoadSceneMode.Additive);
             SceneManager.sceneLoaded += OnGameSceneLoaded;
         }
@@ -158,6 +167,10 @@ namespace Miniverse.Hub
         {
             if (_homeUIRoot != null) _homeUIRoot.SetActive(true);
             if (_homeEventSystem != null) _homeEventSystem.SetActive(true);
+            // Mirror of the AudioListener.volume reset in LaunchGame -- the minigame we just
+            // left may have changed it via its own audio system, so reassert Home's own
+            // persisted preference rather than trusting whatever it left behind.
+            HubAudio.Apply();
         }
     }
 }
